@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crypto Tycoon Pro - Dashboard</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'bg-dark': '#0b0c15',
+                        'sidebar-bg': '#151621',
+                        'card-bg': '#1f202e',
+                        'accent': '#7289da',
+                        'neon-green': '#00e676',
+                        'neon-red': '#ff5252',
+                        'neon-yellow': '#ffea00',
+                        'neon-orange': '#ff9100',
+                        'neon-blue': '#2979ff',
+                        'text-main': '#e0e0e0',
+                        'text-muted': '#858699',
+                        'border-color': '#2d2f3d',
+                        'dpix-color': '#d946ef',
+                        'tier-basic': '#888888',
+                        'tier-common': '#00b85f',
+                        'tier-rare': '#00a3bf',
+                        'tier-epic': '#8a1ccc',
+                        'tier-legendary': '#cc9000',
+                        'tier-box': '#ffb300',
+                        'tier-special': '#ff0099',
+                    },
+                    fontFamily: {
+                        sans: ['Segoe UI', 'Roboto', 'Helvetica', 'sans-serif'],
+                        mono: ['Consolas', 'monospace'],
+                    },
+                    animation: {
+                        'spin-slow': 'spin 3s linear infinite',
+                        'spin-fast': 'spin 0.5s linear infinite',
+                        'pulse-red': 'pulse-red 1s infinite',
+                        'slide-in': 'slideIn 0.3s ease-out',
+                        'float': 'float 3s ease-in-out infinite',
+                        'shake': 'shake 0.5s cubic-bezier(.36,.07,.19,.97) both infinite',
+                        'violent-shake': 'violentShake 0.5s cubic-bezier(.36,.07,.19,.97) both infinite',
+                        'card-pop': 'cardPop 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards',
+                        'magma-flow': 'magmaFlow 3s ease infinite',
+                        'rays-spin': 'spinRays 10s linear infinite',
+                        'flash-bang': 'flashBang 0.5s ease-out forwards',
+                    },
+                    keyframes: {
+                        pulseRed: {
+                            '0%': { boxShadow: '0 0 0 0 rgba(255, 82, 82, 0.7)' },
+                            '70%': { boxShadow: '0 0 0 10px rgba(255, 82, 82, 0)' },
+                            '100%': { boxShadow: '0 0 0 0 rgba(255, 82, 82, 0)' },
+                        },
+                        slideIn: {
+                            'from': { opacity: '0', transform: 'translateY(10px)' },
+                            'to': { opacity: '1', transform: 'translateY(0)' },
+                        },
+                        float: {
+                            '0%, 100%': { transform: 'translateY(0)' },
+                            '50%': { transform: 'translateY(-10px)' },
+                        },
+                        shake: {
+                            '10%, 90%': { transform: 'translate3d(-1px, 0, 0)' },
+                            '20%, 80%': { transform: 'translate3d(2px, 0, 0)' },
+                            '30%, 50%, 70%': { transform: 'translate3d(-4px, 0, 0)' },
+                            '40%, 60%': { transform: 'translate3d(4px, 0, 0)' },
+                        },
+                        violentShake: {
+                            '0%': { transform: 'translate(0, 0) rotate(0deg)' },
+                            '25%': { transform: 'translate(-5px, 5px) rotate(-5deg)' },
+                            '50%': { transform: 'translate(5px, -5px) rotate(5deg)' },
+                            '75%': { transform: 'translate(-5px, -5px) rotate(-5deg)' },
+                            '100%': { transform: 'translate(0, 0) rotate(0deg)' },
+                        },
+                        cardPop: {
+                            '0%': { transform: 'scale(0) rotateY(90deg)', opacity: '0' },
+                            '60%': { transform: 'scale(1.1) rotateY(0deg)', opacity: '1' },
+                            '100%': { transform: 'scale(1) rotateY(0deg)', opacity: '1' },
+                        },
+                        magmaFlow: {
+                            '0%': { backgroundPosition: '0% 50%' },
+                            '50%': { backgroundPosition: '100% 50%' },
+                            '100%': { backgroundPosition: '0% 50%' },
+                        },
+                        spinRays: {
+                            'from': { transform: 'translate(-50%, -50%) rotate(0deg)' },
+                            'to': { transform: 'translate(-50%, -50%) rotate(360deg)' },
+                        },
+                        flashBang: {
+                            '0%': { opacity: '1' },
+                            '100%': { opacity: '0' },
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Custom complex gradients that are hard in pure Tailwind utility classes */
+        .style-gold {
+            background: linear-gradient(135deg, #bf953f 0%, #fcf6ba 50%, #b38728 100%) !important;
+            border: 1px solid #ffd700 !important;
+            box-shadow: 0 0 15px rgba(255, 215, 0, 0.6) !important;
+            color: #422e04 !important;
+        }
+        .style-diamond {
+            background: linear-gradient(135deg, #e0f7fa 0%, #00e5ff 100%) !important;
+            border: 1px solid #00bcd4 !important;
+            box-shadow: 0 0 15px rgba(0, 229, 255, 0.6) !important;
+            color: #004d40 !important;
+            text-shadow: 0 0 5px rgba(255,255,255,0.5);
+        }
+        .style-magma {
+            background: linear-gradient(to right, #4a0000, #ff3c00) !important;
+            background-size: 200% 200% !important;
+            animation: magmaFlow 3s ease infinite !important;
+            border: 1px solid #ff5722 !important;
+            box-shadow: 0 0 15px rgba(255, 87, 34, 0.6) !important;
+            color: #fff !important;
+            text-shadow: 0 2px 2px black;
+        }
+        
+        /* Fan Blades Conic Gradient */
+        .fan-blades-gradient {
+            background: conic-gradient(from 0deg, transparent 0deg 60deg, #333 60deg 120deg, transparent 120deg 180deg, #333 180deg 240deg, transparent 240deg 300deg, #333 300deg 360deg);
+        }
+        .style-gold .fan-blades-gradient {
+            background: conic-gradient(from 0deg, transparent 0deg 120deg, #ffd700 120deg 180deg, transparent 180deg 300deg, #ffd700 300deg 360deg) !important; 
+        }
+        .style-diamond .fan-blades-gradient {
+            background: conic-gradient(from 0deg, transparent 0deg 120deg, #00bcd4 120deg 180deg, transparent 180deg 300deg, #00bcd4 300deg 360deg) !important;
+        }
+        .style-magma .fan-blades-gradient {
+            background: conic-gradient(from 0deg, transparent 0deg 120deg, #ff5722 120deg 180deg, transparent 180deg 300deg, #ff5722 300deg 360deg) !important;
+        }
+
+        /* Shelf Gradients */
+        .shelf-bottom {
+            background: repeating-linear-gradient(90deg, #111, #111 5px, #333 5px, #333 10px);
+        }
+
+        /* Room Themes */
+        .theme-basic { background: radial-gradient(circle at center, #2a2a35 0%, #151621 100%); }
+        .theme-common { background: repeating-linear-gradient(45deg, #222, #222 10px, #2a2a2a 10px, #2a2a2a 20px); }
+        .theme-rare { background-color: #0b1015; background-image: linear-gradient(rgba(0, 217, 255, 0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 217, 255, 0.05) 1px, transparent 1px); background-size: 20px 20px; }
+        .theme-epic { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); }
+        .theme-legendary { background: radial-gradient(circle at 50% 50%, rgba(255, 179, 0, 0.1) 0%, transparent 70%), linear-gradient(0deg, #050505 0%, #151515 100%); box-shadow: inset 0 0 30px rgba(255, 179, 0, 0.05); }
+    
+        /* Mini Fan */
+        .slot-fan-mini::after { content: ''; position: absolute; top:0; left:0; width:100%; height:100%; border-radius:50%; background: conic-gradient(from 0deg, transparent 0deg 120deg, #555 120deg 180deg, transparent 180deg 300deg, #555 300deg 360deg); animation: spin 0.2s linear infinite; }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+    </style>
+
+<link rel="stylesheet" href="/index.css">
+<script type="importmap">
+{
+  "imports": {
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react": "https://aistudiocdn.com/react@^19.2.0"
+  }
+}
+</script>
+  <script type="module" crossorigin src="/assets/index-wOmLBke3.js"></script>
+</head>
+<body class="bg-bg-dark text-text-main overflow-hidden font-sans h-screen">
+    <div id="root"></div>
+</body>
+</html>

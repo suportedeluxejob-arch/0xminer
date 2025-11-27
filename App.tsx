@@ -1601,6 +1601,39 @@ const App: React.FC = () => {
   }, [state])
 
   // --- STATE DECLARATIONS ---
+  const [activeView, setActiveView] = useState<"dashboard" | "inventory" | "shop" | "rigs" | "ranking" | "bank">("dashboard")
+  const [toasts, setToasts] = useState<ToastMsg[]>([])
+  const [shopFilter, setShopFilter] = useState({ category: "all", sort: "price_asc" })
+  const [selectedSector, setSelectedSector] = useState<Tier | null>(null)
+
+  const [payModal, setPayModal] = useState<{ show: boolean; roomUid: string | null }>({ show: false, roomUid: null })
+  const [installModal, setInstallModal] = useState<{ show: boolean; parentUid: string | null; type: ItemType | null }>({ show: false, parentUid: null, type: null })
+  const [payAllModal, setPayAllModal] = useState<{ show: boolean; rarity: Tier | null; count: number; total: number }>({ show: false, rarity: null, count: 0, total: 0 })
+  const [bankModal, setBankModal] = useState<{ type: "deposit" | "withdraw" | null } | null>(null)
+  const [terminalLogs, setTerminalLogs] = useState<string[]>([
+    "<span class='text-neon-green'>[SYS]</span> Sistema iniciado.",
+    "<span class='text-neon-blue'>[NET]</span> Conectado à rede 0xMiner.",
+  ])
+
+  // Derived State
+  const userNetWorth = useMemo(() => calculateNetWorth(state), [state])
+
+  // Mock Leaderboard (since backend is simulated)
+  const leaderboard = useMemo(() => {
+    const bots = [
+      { id: "bot1", name: "ElonMusk_X", power: 4500, netWorth: 150000, isUser: false },
+      { id: "bot2", name: "Satoshi_N", power: 3800, netWorth: 120000, isUser: false },
+      { id: "bot3", name: "Vitalik_E", power: 3200, netWorth: 95000, isUser: false },
+      { id: "bot4", name: "CZ_Binance", power: 2800, netWorth: 80000, isUser: false },
+      { id: "bot5", name: "Saylor_BTC", power: 2500, netWorth: 70000, isUser: false },
+    ]
+    const user = { id: "user", name: state.username, power: getActivePower(state.inventory), netWorth: userNetWorth, isUser: true }
+    return [...bots, user].sort((a, b) => b.netWorth - a.netWorth)
+  }, [state.username, state.inventory, userNetWorth])
+
+  const userRank = useMemo(() => leaderboard.findIndex(p => p.isUser) + 1, [leaderboard])
+
+
   const [exchangeConfirmModal, setExchangeConfirmModal] = useState<{
     open: boolean
     type: "dpixToBrl" | "brlToDpix"
@@ -1950,409 +1983,354 @@ const App: React.FC = () => {
       localStorage.setItem("0xminer_v1", JSON.stringify(state))
     }, 10000)
     return () => clearInterval(saveInterval)
-  }, [state])
-
-  // Terminal Effect
-  useEffect(() => {
-    const termInterval = setInterval(() => {
-      const daily = getActiveDailyProduction(state.inventory)
-      let msg = ""
-      if (daily > 0) {
-        const events = [
-          `<span class="text-neon-blue">[NET]</span> Novo bloco encontrado na rede DPIX`,
-          `<span class="text-dpix-color">[GPU]</span> Share aceito (Dif: ${(daily * 10).toFixed(0)}k) - ${Math.floor(Math.random() * 40) + 10}ms`,
-          `<span class="text-neon-green">[SYS]</span> Eficiência térmica: 98%`,
-          `<span class="text-neon-yellow">[WRK]</span> Processando hash: 0x${Math.random().toString(16).substr(2, 8)}...`,
+      `<span class="text-neon-green">[SYS]</span> Eficiência térmica: 98%`,
+      `<span class="text-neon-yellow">[WRK]</span> Processando hash: 0x${Math.random().toString(16).substr(2, 8)}...`,
         ]
-        msg = events[Math.floor(Math.random() * events.length)]
+msg = events[Math.floor(Math.random() * events.length)]
       } else {
-        const hasInventory = state.inventory.some((i) => i.type === "miner" && i.parentId === null)
-        if (hasInventory) {
-          msg = `<span class="text-neon-yellow">[TIP]</span> Hardware detectado no inventário. Instale em um Quarto para iniciar.`
-        } else {
-          const idleEvents = [
-            `<span class="text-neon-red">[ERR]</span> Nenhuma mineradora ativa. Sistema em repouso.`,
-            `<span class="text-neon-blue">[SYS]</span> Aguardando configuração de infraestrutura...`,
-            `<span class="text-neon-blue">[NET]</span> Desconectado da Pool.`,
-          ]
-          msg = idleEvents[Math.floor(Math.random() * idleEvents.length)]
-        }
-      }
-      setTerminalLogs((prev) => [...prev.slice(-7), msg])
+  const hasInventory = state.inventory.some((i) => i.type === "miner" && i.parentId === null)
+  if (hasInventory) {
+    msg = `<span class="text-neon-yellow">[TIP]</span> Hardware detectado no inventário. Instale em um Quarto para iniciar.`
+  } else {
+    const idleEvents = [
+      `<span class="text-neon-red">[ERR]</span> Nenhuma mineradora ativa. Sistema em repouso.`,
+      `<span class="text-neon-blue">[SYS]</span> Aguardando configuração de infraestrutura...`,
+      `<span class="text-neon-blue">[NET]</span> Desconectado da Pool.`,
+    ]
+    msg = idleEvents[Math.floor(Math.random() * idleEvents.length)]
+  }
+}
+setTerminalLogs((prev) => [...prev.slice(-7), msg])
     }, 2500)
-    return () => clearInterval(termInterval)
+return () => clearInterval(termInterval)
   }, [state.inventory]) // Add dependency to avoid stale closure if inventory changes rarely
 
-  // --- ACTIONS ---
-  // handleCollect is unchanged, but its position changed due to processBoxOpening moving
-  const handleCollect = useCallback(() => {
-    if (state.miningPool >= 10) {
-      setState((prev) => ({
-        ...prev,
-        dpix: prev.dpix + state.miningPool,
-        miningPool: 0,
-      }))
-      addLog("Saque Pool", state.miningPool.toFixed(2) + " DPIX", "coin")
-      notify("DPIX coletado!", "success")
-    }
-  }, [state.miningPool, addLog, notify, setState])
+// --- ACTIONS ---
+// handleCollect is unchanged, but its position changed due to processBoxOpening moving
+const handleCollect = useCallback(() => {
+  if (state.miningPool >= 10) {
+    setState((prev) => ({
+      ...prev,
+      dpix: prev.dpix + state.miningPool,
+      miningPool: 0,
+    }))
+    addLog("Saque Pool", state.miningPool.toFixed(2) + " DPIX", "coin")
+    notify("DPIX coletado!", "success")
+  }
+}, [state.miningPool, addLog, notify, setState])
 
-  // processBoxOpening moved before handleBuy
-  const processBoxOpening = useCallback(
-    (boxItem: DBItem, boxType: string) => {
-      const roll = Math.random() * 100
-      let tier: Tier = "basic"
-      if (roll > 99) tier = "legendary"
-      else if (roll > 95) tier = "epic"
-      else if (roll > 85) tier = "rare"
-      else if (roll > 60) tier = "common"
+// processBoxOpening moved before handleBuy
+const processBoxOpening = useCallback(
+  (boxItem: DBItem, boxType: string) => {
+    const roll = Math.random() * 100
+    let tier: Tier = "basic"
+    if (roll > 99) tier = "legendary"
+    else if (roll > 95) tier = "epic"
+    else if (roll > 85) tier = "rare"
+    else if (roll > 60) tier = "common"
 
-      const possibleItems = ITEMS_DB[boxType as keyof typeof ITEMS_DB].filter(
-        (i) => i.tier === tier && i.type !== "box" && !i.isSpecial,
-      )
-      const wonItem = possibleItems[Math.floor(Math.random() * possibleItems.length)]
+    const possibleItems = ITEMS_DB[boxType as keyof typeof ITEMS_DB].filter(
+      (i) => i.tier === tier && i.type !== "box" && !i.isSpecial,
+    )
+    const wonItem = possibleItems[Math.floor(Math.random() * possibleItems.length)]
 
-      if (wonItem) {
-        const newItem: InventoryItem = {
-          uid: "uid_" + Date.now() + Math.random().toString(36).substr(2, 9),
-          id: wonItem.id,
-          type: boxType as any,
-          parentId: null,
-          boughtAt: Date.now(),
-          lastRentPaid: boxType === "room" ? Date.now() : undefined,
-          power: boxType === "room" ? true : undefined,
-          autoPay: boxType === "room" ? false : undefined,
-          health: boxType === "miner" ? 100 : undefined,
-        }
-        setState((prev) => ({ ...prev, inventory: [...prev.inventory, newItem] }))
-        setBoxAnim({ wonItem, tier })
-      } else {
-        notify("Erro ao abrir box.", "error")
+    if (wonItem) {
+      const newItem: InventoryItem = {
+        uid: "uid_" + Date.now() + Math.random().toString(36).substr(2, 9),
+        id: wonItem.id,
+        type: boxType as any,
+        parentId: null,
+        boughtAt: Date.now(),
+        lastRentPaid: boxType === "room" ? Date.now() : undefined,
+        power: boxType === "room" ? true : undefined,
+        autoPay: boxType === "room" ? false : undefined,
+        health: boxType === "miner" ? 100 : undefined,
       }
-    },
-    [notify, setState],
-  )
-
-  // UPDATED: Handle Buy (Opens Modal)
-  const handleBuy = useCallback(
-    (item: DBItem, type: string) => {
-      setBuyConfirmModal({ show: true, item, type })
-    },
-    [],
-  )
-
-  // NEW: Confirm Purchase Logic
-  const confirmPurchase = useCallback(() => {
-    if (!buyConfirmModal || !buyConfirmModal.item) return
-
-    const { item, type } = buyConfirmModal
-    const cost = item.price
-
-    if (state.dpix < cost) {
-      notify(`Saldo insuficiente. Você precisa de Ð ${cost.toFixed(2)}`, "error")
-      setBuyConfirmModal(null)
-      return
+      setState((prev) => ({ ...prev, inventory: [...prev.inventory, newItem] }))
+      setBoxAnim({ wonItem, tier })
+    } else {
+      notify("Erro ao abrir box.", "error")
     }
+  },
+  [notify, setState],
+)
 
-    setState((prev) => ({ ...prev, dpix: prev.dpix - cost }))
+// UPDATED: Handle Buy (Opens Modal)
+const handleBuy = useCallback(
+  (item: DBItem, type: string) => {
+    setBuyConfirmModal({ show: true, item, type })
+  },
+  [],
+)
 
-    const newItem: InventoryItem = {
-      uid: "uid_" + Date.now() + Math.random().toString(36).substr(2, 9),
-      id: item.id,
-      type: type as any,
-      parentId: null,
-      boughtAt: Date.now(),
-      lastRentPaid: type === "room" ? Date.now() : undefined,
-      power: type === "room" ? true : undefined,
-      autoPay: type === "room" ? false : undefined,
-      health: type === "miner" ? 100 : undefined,
-    }
+// NEW: Confirm Purchase Logic
+const confirmPurchase = useCallback(() => {
+  if (!buyConfirmModal || !buyConfirmModal.item) return
 
-    setState((prev) => ({ ...prev, inventory: [...prev.inventory, newItem] }))
-    addLog(`Comprou ${item.name}`, -cost, "coin")
-    notify(`${item.name} comprado com sucesso!`, "success")
+  const { item, type } = buyConfirmModal
+  const cost = item.price
+
+  if (state.dpix < cost) {
+    notify(`Saldo insuficiente. Você precisa de Ð ${cost.toFixed(2)}`, "error")
     setBuyConfirmModal(null)
-  }, [buyConfirmModal, state.dpix, notify, addLog])
+    return
+  }
+
+  setState((prev) => ({ ...prev, dpix: prev.dpix - cost }))
+
+  const newItem: InventoryItem = {
+    uid: "uid_" + Date.now() + Math.random().toString(36).substr(2, 9),
+    id: item.id,
+    type: type as any,
+    parentId: null,
+    boughtAt: Date.now(),
+    lastRentPaid: type === "room" ? Date.now() : undefined,
+    power: type === "room" ? true : undefined,
+    autoPay: type === "room" ? false : undefined,
+    health: type === "miner" ? 100 : undefined,
+  }
+
+  setState((prev) => ({ ...prev, inventory: [...prev.inventory, newItem] }))
+  addLog(`Comprou ${item.name}`, -cost, "coin")
+  notify(`${item.name} comprado com sucesso!`, "success")
+  setBuyConfirmModal(null)
+}, [buyConfirmModal, state.dpix, notify, addLog])
 
 
-  const handleInstall = useCallback(
-    (itemUid: string) => {
-      if (!installModal) return
+const handleInstall = useCallback(
+  (itemUid: string) => {
+    if (!installModal) return
 
-      // Verificar se é mineradora quebrada
-      const item = state.inventory.find((i) => i.uid === itemUid)
-      if (item?.type === "miner") {
-        const health = item.health ?? 100
-        if (health <= 0) {
-          notify("Esta mineradora está superaquecida e precisa de manutenção antes de ser instalada!", "error")
-          addLog(`[CRITICAL] Falha na instalação: Mineradora ${item.id} superaquecida.`, 0, "out")
-          return
-        }
-      }
-
-      // --- LOGIC HARDENING: SLOT LIMITS ---
-      const parentUid = installModal.parentUid
-      const parentItem = state.inventory.find((i) => i.uid === parentUid)
-
-      if (parentItem) {
-        const parentDB = ITEMS_DB[parentItem.type]?.find(x => x.id === parentItem.id)
-        const maxSlots = parentDB?.slots || 1
-
-        const currentChildren = state.inventory.filter(i => i.parentId === parentUid).length
-
-        if (currentChildren >= maxSlots) {
-          notify(`Capacidade esgotada! Este item suporta apenas ${maxSlots} slots.`, "error")
-          addLog(`[WARN] Instalação falhou: Capacidade do ${parentDB?.name || 'item'} excedida.`, 0, "out")
-          return
-        }
-      }
-      // ------------------------------------
-
-      setState((prev) => ({
-        ...prev,
-        inventory: prev.inventory.map((i) => (i.uid === itemUid ? { ...i, parentId: installModal.parentUid } : i)),
-      }))
-      notify("Item instalado!", "success")
-      addLog(`[SUCCESS] Instalação concluída: ${item?.id} -> ${parentItem?.id}`, 0, "in")
-      setInstallModal(null)
-    },
-    [installModal, notify, setState, state.inventory, addLog],
-  )
-
-  const handleUninstall = useCallback(
-    (itemUid: string) => {
-      setState((prev) => {
-        const item = prev.inventory.find((i) => i.uid === itemUid)
-        if (!item) return prev
-        if (item.type === "shelf") {
-          const children = prev.inventory.filter((i) => i.parentId === itemUid)
-          if (children.length > 0) {
-            notify("Esvazie a prateleira antes!", "error")
-            return prev
-          }
-        }
-        return {
-          ...prev,
-          inventory: prev.inventory.map((i) => (i.uid === itemUid ? { ...i, parentId: null } : i)),
-        }
-      })
-    },
-    [notify, setState],
-  )
-
-  const handlePayRent = useCallback(
-    (roomUid: string) => {
-      setPayModal({ roomUid })
-    },
-    [setPayModal],
-  )
-
-  const processPayRent = useCallback(() => {
-    if (!payModal) return
-    const room = state.inventory.find((r) => r.uid === payModal.roomUid)
-    if (!room) return
-    const dbRoom = ITEMS_DB.room.find((r) => r.id === room.id)
-    if (dbRoom && dbRoom.rent) {
-      if (state.dpix >= dbRoom.rent) {
-        setState((prev) => ({
-          ...prev,
-          dpix: prev.dpix - (dbRoom.rent || 0),
-          inventory: prev.inventory.map((i) =>
-            i.uid === payModal.roomUid ? { ...i, lastRentPaid: Date.now(), power: true } : i,
-          ),
-        }))
-        addLog(`Aluguel: ${dbRoom.name}`, -dbRoom.rent, "out")
-        notify("Conta paga!", "success")
-      } else {
-        notify("Saldo insuficiente em DPIX", "error")
-      }
-    }
-    setPayModal(null)
-  }, [state.inventory, state.dpix, payModal, addLog, notify, setState])
-
-  const toggleAutoPay = useCallback(
-    (roomUid: string) => {
-      setState((prev) => {
-        const room = prev.inventory.find((r) => r.uid === roomUid)
-        if (!room) return prev
-        notify(`Pagamento Automático ${!room.autoPay ? "ATIVADO" : "DESATIVADO"}`, !room.autoPay ? "success" : "info")
-        return {
-          ...prev,
-          inventory: prev.inventory.map((i) => (i.uid === roomUid ? { ...i, autoPay: !i.autoPay } : i)),
-        }
-      })
-    },
-    [notify, setState],
-  )
-
-  const openInstallModal = useCallback((type: string, uid: string) => {
-    setInstallModal({ typeNeeded: type, parentUid: uid })
-  }, [])
-
-  const handleBankAction = useCallback(
-    (amount: number) => {
-      if (!bankModal) return
-      if (bankModal.type === "deposit") {
-        // Credit DPIX directly (1:1 ratio for simplicity in this game logic)
-        setState((prev) => ({ ...prev, dpix: prev.dpix + amount }))
-        addLog("Depósito (BRL -> DPIX)", amount, "coin")
-        notify(`Depósito de ${formatBRL(amount)} convertido para ${amount} DPIX!`, "success")
-      } else {
-        const feeInfo = getWithdrawFee(state.createdAt)
-        // Withdraw Logic: Deduct Gross from BRL Wallet
-        if (amount > state.wallet) {
-          notify("Saldo insuficiente", "error")
-          return
-        }
-        setState((prev) => ({ ...prev, wallet: prev.wallet - amount }))
-        addLog("Saque Bancário", -amount, "out")
-        notify(`Saque processado!`, "success")
-      }
-      setBankModal(null)
-    },
-    [bankModal, state.createdAt, state.wallet, addLog, notify, setState],
-  )
-
-  // --- RECYCLE LOGIC ---
-  const handleRecycleRequest = useCallback((uids: string[]) => {
-    let totalValue = 0;
-    const itemsToRecycle = uids.map(uid => state.inventory.find(i => i.uid === uid)).filter(Boolean);
-
-    itemsToRecycle.forEach(item => {
-      if (!item) return;
-      if (item.type === 'miner') totalValue += 20;
-      else if (item.type === 'room') totalValue += 8;
-      else if (item.type === 'shelf') totalValue += 4;
-      else totalValue += 1; // Fallback
-    });
-
-    setRecycleModal({ show: true, items: uids, totalValue });
-  }, [state.inventory]);
-
-  const confirmRecycle = useCallback(() => {
-    if (!recycleModal) return;
-
-    setState(prev => ({
-      ...prev,
-      dpix: prev.dpix + recycleModal.totalValue,
-      inventory: prev.inventory.filter(i => !recycleModal.items.includes(i.uid)),
-      logs: [
-        {
-          id: Date.now(),
-          date: new Date().toLocaleString("pt-BR"),
-          desc: `Reciclagem (${recycleModal.items.length} itens)`,
-          amount: recycleModal.totalValue,
-          type: "coin"
-        },
-        ...prev.logs
-      ]
-    }));
-    notify(`Reciclado! +Ð ${recycleModal.totalValue}`, "success");
-    setRecycleModal(null);
-  }, [recycleModal, notify, setState]);
-
-  // --- REPAIR LOGIC ---
-  const handleRepairRequest = useCallback((uids: string[]) => {
-    const itemsToRepair = uids.map(uid => state.inventory.find(i => i.uid === uid)).filter(Boolean);
-    const validMiners = itemsToRepair.filter(i => i && i.type === 'miner');
-
-    if (validMiners.length === 0) {
-      notify("Nenhuma mineradora válida para reparar.", "error");
-      return;
-    }
-
-    const totalCost = validMiners.length * 50;
-    setRepairModal({ show: true, items: validMiners.map(i => i!.uid), totalCost });
-  }, [state.inventory, notify]);
-
-  const confirmRepair = useCallback(() => {
-    if (!repairModal) return;
-
-    if (state.dpix < repairModal.totalCost) {
-      notify(`Saldo insuficiente. Necessário: Ð ${repairModal.totalCost}`, "error");
-      setRepairModal(null);
-      return;
-    }
-
-    setState(prev => ({
-      ...prev,
-      dpix: prev.dpix - repairModal.totalCost,
-      inventory: prev.inventory.map(item =>
-        repairModal.items.includes(item.uid)
-          ? { ...item, health: 100, lastHealthUpdate: Date.now() }
-          : item
-      ),
-      logs: [
-        {
-          id: Date.now(),
-          date: new Date().toLocaleString("pt-BR"),
-          desc: `Reparo (${repairModal.items.length} mineradoras)`,
-          amount: -repairModal.totalCost,
-          type: "coin"
-        },
-        ...prev.logs
-      ]
-    }));
-    notify("Reparo concluído!", "success");
-    setRepairModal(null);
-  }, [repairModal, state.dpix, notify, setState]);
-
-
-
-  const getMinersThatNeedRepair = useCallback(() => {
-    return state.inventory.filter((item) => {
-      if (item.type !== "miner" || !item.parentId) return false
+    // Verificar se é mineradora quebrada
+    const item = state.inventory.find((i) => i.uid === itemUid)
+    if (item?.type === "miner") {
       const health = item.health ?? 100
-      return health <= 20 // Alerta quando health < 20%
-    }).length
-  }, [state.inventory])
-
-  const payAllEnergy = useCallback(
-    (rarity: Tier) => {
-      const rentCosts: Record<Tier, number> = {
-        basic: 0.6,
-        common: 1.5,
-        rare: 3.5,
-        epic: 8.0,
-        legendary: 20.0,
-      }
-
-      const cost = rentCosts[rarity]
-
-      // Filtrar quartos que precisam de energia nessa raridade
-      const roomsNeedingEnergy = state.inventory.filter((room) => {
-        if (room.type !== "room") return false
-        const dbRoom = ITEMS_DB.room.find((x) => x.id === room.id)
-        if (!dbRoom || dbRoom.tier !== rarity) return false
-
-        const timeLeft = (room.lastRentPaid || 0) + RENT_DURATION_MS - Date.now()
-        return timeLeft <= 0 || timeLeft < RENT_DURATION_MS
-      })
-
-      if (roomsNeedingEnergy.length === 0) {
-        notify("Todos os quartos já têm energia suficiente!", "info")
+      if (health <= 0) {
+        notify("Esta mineradora está superaquecida e precisa de manutenção antes de ser instalada!", "error")
+        addLog(`[CRITICAL] Falha na instalação: Mineradora ${item.id} superaquecida.`, 0, "out")
         return
       }
-
-      const totalCost = cost * roomsNeedingEnergy.length
-
-      // Abrir modal de confirmação
-      setPayAllModal({ rarity, count: roomsNeedingEnergy.length, total: totalCost })
-    },
-    [state.inventory, notify],
-  )
-
-  const processPayAllEnergy = useCallback(() => {
-    if (!payAllModal) return
-
-    const { rarity, count, total } = payAllModal
-
-    if (state.dpix < total) {
-      notify(`Saldo insuficiente! Necessário: Ð ${total.toFixed(2)}`, "error")
-      setPayAllModal(null)
-      return
     }
 
+    // --- LOGIC HARDENING: SLOT LIMITS ---
+    const parentUid = installModal.parentUid
+    const parentItem = state.inventory.find((i) => i.uid === parentUid)
+
+    if (parentItem) {
+      const parentDB = ITEMS_DB[parentItem.type]?.find(x => x.id === parentItem.id)
+      const maxSlots = parentDB?.slots || 1
+
+      const currentChildren = state.inventory.filter(i => i.parentId === parentUid).length
+
+      if (currentChildren >= maxSlots) {
+        notify(`Capacidade esgotada! Este item suporta apenas ${maxSlots} slots.`, "error")
+        addLog(`[WARN] Instalação falhou: Capacidade do ${parentDB?.name || 'item'} excedida.`, 0, "out")
+        return
+      }
+    }
+    // ------------------------------------
+
+    setState((prev) => ({
+      ...prev,
+      inventory: prev.inventory.map((i) => (i.uid === itemUid ? { ...i, parentId: installModal.parentUid } : i)),
+    }))
+    notify("Item instalado!", "success")
+    addLog(`[SUCCESS] Instalação concluída: ${item?.id} -> ${parentItem?.id}`, 0, "in")
+    setInstallModal(null)
+  },
+  [installModal, notify, setState, state.inventory, addLog],
+)
+
+const handleUninstall = useCallback(
+  (itemUid: string) => {
+    setState((prev) => {
+      const item = prev.inventory.find((i) => i.uid === itemUid)
+      if (!item) return prev
+      if (item.type === "shelf") {
+        const children = prev.inventory.filter((i) => i.parentId === itemUid)
+        if (children.length > 0) {
+          notify("Esvazie a prateleira antes!", "error")
+          return prev
+        }
+      }
+      return {
+        ...prev,
+        inventory: prev.inventory.map((i) => (i.uid === itemUid ? { ...i, parentId: null } : i)),
+      }
+    })
+  },
+  [notify, setState],
+)
+
+const handlePayRent = useCallback(
+  (roomUid: string) => {
+    setPayModal({ roomUid })
+  },
+  [setPayModal],
+)
+
+const processPayRent = useCallback(() => {
+  if (!payModal) return
+  const room = state.inventory.find((r) => r.uid === payModal.roomUid)
+  if (!room) return
+  const dbRoom = ITEMS_DB.room.find((r) => r.id === room.id)
+  if (dbRoom && dbRoom.rent) {
+    if (state.dpix >= dbRoom.rent) {
+      setState((prev) => ({
+        ...prev,
+        dpix: prev.dpix - (dbRoom.rent || 0),
+        inventory: prev.inventory.map((i) =>
+          i.uid === payModal.roomUid ? { ...i, lastRentPaid: Date.now(), power: true } : i,
+        ),
+      }))
+      addLog(`Aluguel: ${dbRoom.name}`, -dbRoom.rent, "out")
+      notify("Conta paga!", "success")
+    } else {
+      notify("Saldo insuficiente em DPIX", "error")
+    }
+  }
+  setPayModal(null)
+}, [state.inventory, state.dpix, payModal, addLog, notify, setState])
+
+const toggleAutoPay = useCallback(
+  (roomUid: string) => {
+    setState((prev) => {
+      const room = prev.inventory.find((r) => r.uid === roomUid)
+      if (!room) return prev
+      notify(`Pagamento Automático ${!room.autoPay ? "ATIVADO" : "DESATIVADO"}`, !room.autoPay ? "success" : "info")
+      return {
+        ...prev,
+        inventory: prev.inventory.map((i) => (i.uid === roomUid ? { ...i, autoPay: !i.autoPay } : i)),
+      }
+    })
+  },
+  [notify, setState],
+)
+
+const openInstallModal = useCallback((type: string, uid: string) => {
+  setInstallModal({ typeNeeded: type, parentUid: uid })
+}, [])
+
+const handleBankAction = useCallback(
+  (amount: number) => {
+    if (!bankModal) return
+    if (bankModal.type === "deposit") {
+      // Credit DPIX directly (1:1 ratio for simplicity in this game logic)
+      setState((prev) => ({ ...prev, dpix: prev.dpix + amount }))
+      addLog("Depósito (BRL -> DPIX)", amount, "coin")
+      notify(`Depósito de ${formatBRL(amount)} convertido para ${amount} DPIX!`, "success")
+    } else {
+      const feeInfo = getWithdrawFee(state.createdAt)
+      // Withdraw Logic: Deduct Gross from BRL Wallet
+      if (amount > state.wallet) {
+        notify("Saldo insuficiente", "error")
+        return
+      }
+      setState((prev) => ({ ...prev, wallet: prev.wallet - amount }))
+      addLog("Saque Bancário", -amount, "out")
+      notify(`Saque processado!`, "success")
+    }
+    setBankModal(null)
+  },
+  [bankModal, state.createdAt, state.wallet, addLog, notify, setState],
+)
+
+// --- RECYCLE LOGIC ---
+const handleRecycleRequest = useCallback((uids: string[]) => {
+  let totalValue = 0;
+  const itemsToRecycle = uids.map(uid => state.inventory.find(i => i.uid === uid)).filter(Boolean);
+
+  itemsToRecycle.forEach(item => {
+    if (!item) return;
+    if (item.type === 'miner') totalValue += 20;
+    else if (item.type === 'room') totalValue += 8;
+    else if (item.type === 'shelf') totalValue += 4;
+    else totalValue += 1; // Fallback
+  });
+
+  setRecycleModal({ show: true, items: uids, totalValue });
+}, [state.inventory]);
+
+const confirmRecycle = useCallback(() => {
+  if (!recycleModal) return;
+
+  setState(prev => ({
+    ...prev,
+    dpix: prev.dpix + recycleModal.totalValue,
+    inventory: prev.inventory.filter(i => !recycleModal.items.includes(i.uid)),
+    logs: [
+      {
+        id: Date.now(),
+        date: new Date().toLocaleString("pt-BR"),
+        desc: `Reciclagem (${recycleModal.items.length} itens)`,
+        amount: recycleModal.totalValue,
+        type: "coin"
+      },
+      ...prev.logs
+    ]
+  }));
+  notify(`Reciclado! +Ð ${recycleModal.totalValue}`, "success");
+  setRecycleModal(null);
+}, [recycleModal, notify, setState]);
+
+// --- REPAIR LOGIC ---
+const handleRepairRequest = useCallback((uids: string[]) => {
+  const itemsToRepair = uids.map(uid => state.inventory.find(i => i.uid === uid)).filter(Boolean);
+  const validMiners = itemsToRepair.filter(i => i && i.type === 'miner');
+
+  if (validMiners.length === 0) {
+    notify("Nenhuma mineradora válida para reparar.", "error");
+    return;
+  }
+
+  const totalCost = validMiners.length * 50;
+  setRepairModal({ show: true, items: validMiners.map(i => i!.uid), totalCost });
+}, [state.inventory, notify]);
+
+const confirmRepair = useCallback(() => {
+  if (!repairModal) return;
+
+  if (state.dpix < repairModal.totalCost) {
+    notify(`Saldo insuficiente. Necessário: Ð ${repairModal.totalCost}`, "error");
+    setRepairModal(null);
+    return;
+  }
+
+  setState(prev => ({
+    ...prev,
+    dpix: prev.dpix - repairModal.totalCost,
+    inventory: prev.inventory.map(item =>
+      repairModal.items.includes(item.uid)
+        ? { ...item, health: 100, lastHealthUpdate: Date.now() }
+        : item
+    ),
+    logs: [
+      {
+        id: Date.now(),
+        date: new Date().toLocaleString("pt-BR"),
+        desc: `Reparo (${repairModal.items.length} mineradoras)`,
+        amount: -repairModal.totalCost,
+        type: "coin"
+      },
+      ...prev.logs
+    ]
+  }));
+  notify("Reparo concluído!", "success");
+  setRepairModal(null);
+}, [repairModal, state.dpix, notify, setState]);
+
+
+
+const getMinersThatNeedRepair = useCallback(() => {
+  return state.inventory.filter((item) => {
+    if (item.type !== "miner" || !item.parentId) return false
+    const health = item.health ?? 100
+    return health <= 20 // Alerta quando health < 20%
+  }).length
+}, [state.inventory])
+
+const payAllEnergy = useCallback(
+  (rarity: Tier) => {
     const rentCosts: Record<Tier, number> = {
       basic: 0.6,
       common: 1.5,
@@ -2363,6 +2341,7 @@ const App: React.FC = () => {
 
     const cost = rentCosts[rarity]
 
+    // Filtrar quartos que precisam de energia nessa raridade
     const roomsNeedingEnergy = state.inventory.filter((room) => {
       if (room.type !== "room") return false
       const dbRoom = ITEMS_DB.room.find((x) => x.id === room.id)
@@ -2372,236 +2351,280 @@ const App: React.FC = () => {
       return timeLeft <= 0 || timeLeft < RENT_DURATION_MS
     })
 
-    // Pagar todos
-    setState((prev) => ({
-      ...prev,
-      dpix: prev.dpix - total,
-      inventory: prev.inventory.map((i) => {
-        if (roomsNeedingEnergy.find((r) => r.uid === i.uid)) {
-          return { ...i, lastRentPaid: Date.now(), power: true }
-        }
-        return i
-      }),
-    }))
+    if (roomsNeedingEnergy.length === 0) {
+      notify("Todos os quartos já têm energia suficiente!", "info")
+      return
+    }
 
-    addLog(`Energia: ${count} quartos`, -total, "out")
-    notify(
-      `⚡ Energia renovada para ${count} ${count === 1 ? "quarto" : "quartos"}! Custo: Ð ${total.toFixed(2)}`,
-      "success",
-    )
+    const totalCost = cost * roomsNeedingEnergy.length
+
+    // Abrir modal de confirmação
+    setPayAllModal({ rarity, count: roomsNeedingEnergy.length, total: totalCost })
+  },
+  [state.inventory, notify],
+)
+
+const processPayAllEnergy = useCallback(() => {
+  if (!payAllModal) return
+
+  const { rarity, count, total } = payAllModal
+
+  if (state.dpix < total) {
+    notify(`Saldo insuficiente! Necessário: Ð ${total.toFixed(2)}`, "error")
     setPayAllModal(null)
-  }, [payAllModal, state.dpix, state.inventory, setState, addLog, notify])
-
-  const EXCHANGE_RATE = 100 // 1 BRL = 100 DPIX (ou 100 DPIX = 1 BRL)
-  const CURRENT_EXCHANGE_FEE = 0.02 // Taxa de 2%
-
-  const exchangeDpixToBrl = (dpixAmount: number) => {
-    if (dpixAmount <= 0 || dpixAmount > state.dpix) {
-      notify("Valor inválido ou saldo insuficiente de DPIX", "error")
-      return
-    }
-
-    const brlValue = dpixAmount / EXCHANGE_RATE
-    const fee = brlValue * CURRENT_EXCHANGE_FEE
-    const brlAfterFee = brlValue - fee
-
-    setState((prev) => ({
-      ...prev,
-      dpix: prev.dpix - dpixAmount,
-      wallet: prev.wallet + brlAfterFee,
-    }))
-
-    notify(
-      `Convertido Ð ${dpixAmount.toFixed(2)} → R$ ${brlAfterFee.toFixed(2)} (taxa: R$ ${fee.toFixed(2)})`,
-      "success",
-    )
-    setExchangeModal({ open: false, mode: null })
-    setExchangeAmount("")
+    return
   }
 
-  const exchangeBrlToDpix = (brlAmount: number) => {
-    if (brlAmount <= 0 || brlAmount > state.wallet) {
-      notify("Valor inválido ou saldo insuficiente de BRL", "error")
-      return
-    }
-
-    const fee = brlAmount * CURRENT_EXCHANGE_FEE
-    const brlAfterFee = brlAmount - fee
-    const dpixValue = brlAfterFee * EXCHANGE_RATE
-
-    setState((prev) => ({
-      ...prev,
-      wallet: prev.wallet - brlAmount,
-      dpix: prev.dpix + dpixValue,
-    }))
-
-    notify(`Convertido R$ ${brlAmount.toFixed(2)} → Ð ${dpixValue.toFixed(2)} (taxa: R$ ${fee.toFixed(2)})`, "success")
-    setExchangeModal({ open: false, mode: null })
-    setExchangeAmount("")
+  const rentCosts: Record<Tier, number> = {
+    basic: 0.6,
+    common: 1.5,
+    rare: 3.5,
+    epic: 8.0,
+    legendary: 20.0,
   }
 
-  const handleExchangeSubmit = () => {
-    const amount = Number.parseFloat(exchangeAmount)
-    if (isNaN(amount)) {
-      notify("Digite um valor válido", "error")
-      return
-    }
+  const cost = rentCosts[rarity]
 
-    if (exchangeModal.mode === "dpix-to-brl") {
-      exchangeDpixToBrl(amount)
-    } else if (exchangeModal.mode === "brl-to-dpix") {
-      exchangeBrlToDpix(amount)
-    }
+  const roomsNeedingEnergy = state.inventory.filter((room) => {
+    if (room.type !== "room") return false
+    const dbRoom = ITEMS_DB.room.find((x) => x.id === room.id)
+    if (!dbRoom || dbRoom.tier !== rarity) return false
+
+    const timeLeft = (room.lastRentPaid || 0) + RENT_DURATION_MS - Date.now()
+    return timeLeft <= 0 || timeLeft < RENT_DURATION_MS
+  })
+
+  // Pagar todos
+  setState((prev) => ({
+    ...prev,
+    dpix: prev.dpix - total,
+    inventory: prev.inventory.map((i) => {
+      if (roomsNeedingEnergy.find((r) => r.uid === i.uid)) {
+        return { ...i, lastRentPaid: Date.now(), power: true }
+      }
+      return i
+    }),
+  }))
+
+  addLog(`Energia: ${count} quartos`, -total, "out")
+  notify(
+    `⚡ Energia renovada para ${count} ${count === 1 ? "quarto" : "quartos"}! Custo: Ð ${total.toFixed(2)}`,
+    "success",
+  )
+  setPayAllModal(null)
+}, [payAllModal, state.dpix, state.inventory, setState, addLog, notify])
+
+const EXCHANGE_RATE = 100 // 1 BRL = 100 DPIX (ou 100 DPIX = 1 BRL)
+const CURRENT_EXCHANGE_FEE = 0.02 // Taxa de 2%
+
+const exchangeDpixToBrl = (dpixAmount: number) => {
+  if (dpixAmount <= 0 || dpixAmount > state.dpix) {
+    notify("Valor inválido ou saldo insuficiente de DPIX", "error")
+    return
   }
 
-  // --- SMART ROUTING (ONBOARDING) ---
-  const handleQuickStart = () => {
-    const boxCost = 100 // Cost of Basic Box
-    const boxCostBRL = boxCost * DPIX_PRICE_BRL
+  const brlValue = dpixAmount / EXCHANGE_RATE
+  const fee = brlValue * CURRENT_EXCHANGE_FEE
+  const brlAfterFee = brlValue - fee
 
-    if (state.dpix >= boxCost) {
-      // Has enough DPIX -> Go to Shop
-      setActiveView("shop")
-      setShopFilter("box")
-      notify("Compre sua primeira Box de Mineração!", "success")
-    } else if (state.wallet >= boxCostBRL) {
-      // Has BRL but no DPIX -> Go to Exchange
-      setExchangeModal({ open: true, mode: "brl-to-dpix" })
-      setExchangeAmount(boxCostBRL.toString())
-      notify("Converta BRL para DPIX para comprar equipamentos.", "info")
-    } else {
-      ```
-      // No Funds -> Go to Bank
-      setBankModal({ type: "deposit" })
-      notify("Faça um depósito para iniciar sua operação.", "info")
-    }
+  setState((prev) => ({
+    ...prev,
+    dpix: prev.dpix - dpixAmount,
+    wallet: prev.wallet + brlAfterFee,
+  }))
+
+  notify(
+    `Convertido Ð ${dpixAmount.toFixed(2)} → R$ ${brlAfterFee.toFixed(2)} (taxa: R$ ${fee.toFixed(2)})`,
+    "success",
+  )
+  setExchangeModal({ open: false, mode: null })
+  setExchangeAmount("")
+}
+
+const exchangeBrlToDpix = (brlAmount: number) => {
+  if (brlAmount <= 0 || brlAmount > state.wallet) {
+    notify("Valor inválido ou saldo insuficiente de BRL", "error")
+    return
   }
 
+  const fee = brlAmount * CURRENT_EXCHANGE_FEE
+  const brlAfterFee = brlAmount - fee
+  const dpixValue = brlAfterFee * EXCHANGE_RATE
 
-  return (
-    <div className="h-screen w-full flex overflow-hidden bg-bg-dark text-text-main">
-      {/* MOBILE OVERLAY */}
-      {mobileMenuOpen && (
-        <div
-          className="fixed inset-0 bg-black/80 z-50 md:hidden animate-fade-in"
-          onClick={() => setMobileMenuOpen(false)}
-       ></div>
-      )}
+  setState((prev) => ({
+    ...prev,
+    wallet: prev.wallet - brlAmount,
+    dpix: prev.dpix + dpixValue,
+  }))
 
-      {/* SIDEBAR */}
-      <div className={`fixed md:static inset - y - 0 left - 0 z - [60] w - [260px] min - w - [260px] bg - sidebar - bg border - r border - border - color flex flex - col p - 5 transition - transform duration - 300 ease -in -out shrink - 0 h - full ${ mobileMenuOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0" } `}>
-        <div className="text-[20px] font-bold text-white mb-10 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-2.5">
-            <img src="/logo-0xminer-v2.jpg" alt="0xMINER" className="w-8 h-8 object-contain drop-shadow-[0_0_5px_rgba(0,230,118,0.5)] rounded-full" /> 0xMINER
+  notify(`Convertido R$ ${brlAmount.toFixed(2)} → Ð ${dpixValue.toFixed(2)} (taxa: R$ ${fee.toFixed(2)})`, "success")
+  setExchangeModal({ open: false, mode: null })
+  setExchangeAmount("")
+}
+
+const handleExchangeSubmit = () => {
+  const amount = Number.parseFloat(exchangeAmount)
+  if (isNaN(amount)) {
+    notify("Digite um valor válido", "error")
+    return
+  }
+
+  if (exchangeModal.mode === "dpix-to-brl") {
+    exchangeDpixToBrl(amount)
+  } else if (exchangeModal.mode === "brl-to-dpix") {
+    exchangeBrlToDpix(amount)
+  }
+}
+
+// --- SMART ROUTING (ONBOARDING) ---
+const handleQuickStart = () => {
+  const boxCost = 100 // Cost of Basic Box
+  const boxCostBRL = boxCost * DPIX_PRICE_BRL
+
+  if (state.dpix >= boxCost) {
+    // Has enough DPIX -> Go to Shop
+    setActiveView("shop")
+    setShopFilter("box")
+    notify("Compre sua primeira Box de Mineração!", "success")
+  } else if (state.wallet >= boxCostBRL) {
+    // Has BRL but no DPIX -> Go to Exchange
+    setExchangeModal({ open: true, mode: "brl-to-dpix" })
+    setExchangeAmount(boxCostBRL.toString())
+    notify("Converta BRL para DPIX para comprar equipamentos.", "info")
+  } else {
+
+    // No Funds -> Go to Bank
+    setBankModal({ type: "deposit" })
+    notify("Faça um depósito para iniciar sua operação.", "info")
+  }
+}
+
+
+return (
+  <div className="h-screen w-full flex overflow-hidden bg-bg-dark text-text-main">
+    {/* MOBILE OVERLAY */}
+    {mobileMenuOpen && (
+      <div
+        className="fixed inset-0 bg-black/80 z-50 md:hidden animate-fade-in"
+        onClick={() => setMobileMenuOpen(false)}
+      ></div>
+    )}
+
+    {/* SIDEBAR */}
+    <div className={`fixed md:static inset-y-0 left-0 z-[60] w-[260px] min-w-[260px] bg-sidebar-bg border-r border-border-color flex flex-col p-5 transition-transform duration-300 ease-in-out shrink-0 h-full ${mobileMenuOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}`}>
+      <div className="text-[20px] font-bold text-white mb-10 flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-2.5">
+          <img src="/logo-0xminer-v2.jpg" alt="0xMINER" className="w-8 h-8 object-contain drop-shadow-[0_0_5px_rgba(0,230,118,0.5)] rounded-full" /> 0xMINER
+        </div>
+        {/* Close button for mobile */}
+        <button onClick={() => setMobileMenuOpen(false)} className="md:hidden text-[#888] hover:text-white">
+          <i className="fa-solid fa-xmark text-xl"></i>
+        </button>
+      </div>
+      <ul className="p-0 m-0 flex flex-col gap-2.5 list-none grow overflow-y-auto scrollbar-hide">
+        {[
+          { id: "dashboard", icon: "fa-chart-line", label: "Dashboard" },
+          { id: "profile", icon: "fa-id-card", label: "Perfil" },
+          { id: "rigs", icon: "fa-server", label: "Quartos (Infra)" },
+          { id: "inventory", icon: "fa-boxes-stacked", label: "Inventário" },
+          { id: "shop", icon: "fa-cart-shopping", label: "Mercado" },
+          { id: "exchange", icon: "fa-money-bill-transfer", label: "Câmbio" },
+          { id: "ranking", icon: "fa-trophy", label: "Ranking" },
+          { id: "referrals", icon: "fa-users", label: "Indicações" },
+        ].map((link) => (
+          <li
+            key={link.id}
+            onClick={() => {
+              setActiveView(link.id)
+              setMobileMenuOpen(false) // Close menu on click
+            }}
+            className={`px - 4 py - 3 rounded - lg cursor - pointer transition - all flex items - center gap - 3 font - medium ${activeView === link.id ? "bg-accent text-white shadow-[0_4px_15px_rgba(114,137,218,0.3)]" : "text-text-muted hover:bg-white/5 hover:text-white"} `}
+          >
+            <i className={`fa - solid ${link.icon} `}></i> {link.label}
+          </li>
+        ))}
+        {/* Logout Item */}
+        <li
+          onClick={handleLogout}
+          className="px-4 py-3 rounded-lg cursor-pointer transition-all flex items-center gap-3 font-medium text-text-muted hover:bg-neon-red/10 hover:text-neon-red mt-auto"
+        >
+          <i className="fa-solid fa-power-off"></i> Sair
+        </li>
+      </ul>
+      <div className="mt-4 text-[11px] text-[#555] text-center shrink-0">
+        v9.3.0 Dash Merge
+        <br />
+        Server: São Paulo (BR)
+      </div>
+    </div >
+
+    {/* MAIN CONTENT WRAPPER */}
+    < div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative" >
+      {/* HEADER (Fixed Height, No Shrink) */}
+      < div className="h-[70px] shrink-0 border-b border-border-color flex items-center justify-between px-4 md:px-[30px] bg-[#0b0505]/95 backdrop-blur-sm z-20" >
+        <div className="flex items-center gap-3">
+          {/* Hamburger Menu */}
+          <button
+            onClick={() => setMobileMenuOpen(true)}
+            className="md:hidden w-10 h-10 flex items-center justify-center rounded-lg bg-[#1a1a2e] text-white border border-[#333]"
+          >
+            <i className="fa-solid fa-bars"></i>
+          </button>
+
+          <div className="text-sm text-[#888] hidden sm:block">
+            Bem-vindo, <strong>{state.username}</strong> <span className="text-[#444] mx-2">|</span> <span className="text-xs bg-[#222] px-2 py-1 rounded text-[#aaa]"><i className="fa-solid fa-trophy text-yellow-600 mr-1"></i> #{userRank}</span>
           </div>
-          {/* Close button for mobile */}
-          <button onClick={() => setMobileMenuOpen(false)} className="md:hidden text-[#888] hover:text-white">
-            <i className="fa-solid fa-xmark text-xl"></i>
+        </div>
+        <div className="flex gap-4">
+          <a
+            href="https://whitepaper-doc.netlify.app"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="bg-[#111] border border-border-color px-4 py-2 rounded-full font-bold font-mono flex items-center gap-2.5 text-white shadow-[0_0_10px_rgba(255,255,255,0.1)] whitespace-nowrap hover:bg-[#1a1a2e] hover:shadow-[0_0_15px_rgba(255,255,255,0.2)] transition-all cursor-pointer no-underline"
+            title="Ler Whitepaper Oficial"
+          >
+            <i className="fa-solid fa-book-open"></i>
+            <span className="hidden md:inline">Whitepaper</span>
+          </a>
+          <button
+            onClick={() => setActiveView("exchange")}
+            className="bg-[#111] border border-border-color px-4 py-2 rounded-full font-bold font-mono flex items-center gap-2.5 text-dpix-color shadow-[0_0_10px_rgba(217,70,239,0.1)] border-dpix-color/30 whitespace-nowrap hover:bg-[#1a1a2e] hover:shadow-[0_0_15px_rgba(217,70,239,0.2)] transition-all cursor-pointer"
+            title="Clique para acessar Câmbio (DPIX ⇄ BRL)"
+          >
+            <i className="fa-solid fa-coins"></i>
+            <span className="text-xs opacity-70">DPIX</span>
+            <span>{formatDPIX(state.dpix)}</span>
+          </button>
+          <button
+            onClick={() => setActiveView("profile")}
+            className="bg-[#111] border border-border-color px-4 py-2 rounded-full font-bold font-mono flex items-center gap-2.5 text-neon-green shadow-[0_0_10px_rgba(0,230,118,0.1)] whitespace-nowrap hover:bg-[#1a1a2e] hover:shadow-[0_0_15px_rgba(0,230,118,0.2)] transition-all cursor-pointer"
+            title="Clique para Depositar ou Sacar BRL"
+          >
+            <i className="fa-solid fa-wallet"></i>
+            <span>{formatBRL(state.wallet)}</span>
           </button>
         </div>
-        <ul className="p-0 m-0 flex flex-col gap-2.5 list-none grow overflow-y-auto scrollbar-hide">
-          {[
-            { id: "dashboard", icon: "fa-chart-line", label: "Dashboard" },
-            { id: "profile", icon: "fa-id-card", label: "Perfil" },
-            { id: "rigs", icon: "fa-server", label: "Quartos (Infra)" },
-            { id: "inventory", icon: "fa-boxes-stacked", label: "Inventário" },
-            { id: "shop", icon: "fa-cart-shopping", label: "Mercado" },
-            { id: "exchange", icon: "fa-money-bill-transfer", label: "Câmbio" },
-            { id: "ranking", icon: "fa-trophy", label: "Ranking" },
-            { id: "referrals", icon: "fa-users", label: "Indicações" },
-          ].map((link) => (
-            <li
-              key={link.id}
-              onClick={() => {
-                setActiveView(link.id)
-                setMobileMenuOpen(false) // Close menu on click
-              }}
-              className={`px - 4 py - 3 rounded - lg cursor - pointer transition - all flex items - center gap - 3 font - medium ${ activeView === link.id ? "bg-accent text-white shadow-[0_4px_15px_rgba(114,137,218,0.3)]" : "text-text-muted hover:bg-white/5 hover:text-white" } `}
-            >
-              <i className={`fa - solid ${ link.icon } `}></i> {link.label}
-            </li>
-          ))}
-          {/* Logout Item */}
-          <li
-            onClick={handleLogout}
-            className="px-4 py-3 rounded-lg cursor-pointer transition-all flex items-center gap-3 font-medium text-text-muted hover:bg-neon-red/10 hover:text-neon-red mt-auto"
-         >
-            <i className="fa-solid fa-power-off"></i> Sair
-          </li>
-        </ul>
-        <div className="mt-4 text-[11px] text-[#555] text-center shrink-0">
-          v9.3.0 Dash Merge
-          <br />
-          Server: São Paulo (BR)
-        </div>
-      </div>
+      </div >
 
-      {/* MAIN CONTENT WRAPPER */}
-      <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative">
-        {/* HEADER (Fixed Height, No Shrink) */}
-        <div className="h-[70px] shrink-0 border-b border-border-color flex items-center justify-between px-4 md:px-[30px] bg-[#0b0505]/95 backdrop-blur-sm z-20">
-          <div className="flex items-center gap-3">
-            {/* Hamburger Menu */}
-            <button
-              onClick={() => setMobileMenuOpen(true)}
-              className="md:hidden w-10 h-10 flex items-center justify-center rounded-lg bg-[#1a1a2e] text-white border border-[#333]"
-           >
-              <i className="fa-solid fa-bars"></i>
-            </button>
-
-            <div className="text-sm text-[#888] hidden sm:block">
-              Bem-vindo, <strong>{state.username}</strong> <span className="text-[#444] mx-2">|</span> <span className="text-xs bg-[#222] px-2 py-1 rounded text-[#aaa]"><i className="fa-solid fa-trophy text-yellow-600 mr-1"></i> #{userRank}</span>
-            </div>
-          </div>
-          <div className="flex gap-4">
-            <a
-              href="https://whitepaper-doc.netlify.app"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="bg-[#111] border border-border-color px-4 py-2 rounded-full font-bold font-mono flex items-center gap-2.5 text-white shadow-[0_0_10px_rgba(255,255,255,0.1)] whitespace-nowrap hover:bg-[#1a1a2e] hover:shadow-[0_0_15px_rgba(255,255,255,0.2)] transition-all cursor-pointer no-underline"
-              title="Ler Whitepaper Oficial"
-           >
-              <i className="fa-solid fa-book-open"></i>
-              <span className="hidden md:inline">Whitepaper</span>
-            </a>
-            <button
-              onClick={() => setActiveView("exchange")}
-              className="bg-[#111] border border-border-color px-4 py-2 rounded-full font-bold font-mono flex items-center gap-2.5 text-dpix-color shadow-[0_0_10px_rgba(217,70,239,0.1)] border-dpix-color/30 whitespace-nowrap hover:bg-[#1a1a2e] hover:shadow-[0_0_15px_rgba(217,70,239,0.2)] transition-all cursor-pointer"
-              title="Clique para acessar Câmbio (DPIX ⇄ BRL)"
-           >
-              <i className="fa-solid fa-coins"></i>
-              <span className="text-xs opacity-70">DPIX</span>
-              <span>{formatDPIX(state.dpix)}</span>
-            </button>
-            <button
-              onClick={() => setActiveView("profile")}
-              className="bg-[#111] border border-border-color px-4 py-2 rounded-full font-bold font-mono flex items-center gap-2.5 text-neon-green shadow-[0_0_10px_rgba(0,230,118,0.1)] whitespace-nowrap hover:bg-[#1a1a2e] hover:shadow-[0_0_15px_rgba(0,230,118,0.2)] transition-all cursor-pointer"
-              title="Clique para Depositar ou Sacar BRL"
-           >
-              <i className="fa-solid fa-wallet"></i>
-              <span>{formatBRL(state.wallet)}</span>
-            </button>
-          </div>
-        </div>
-
-        {/* SCROLLABLE VIEW AREA */}
-        <div className="flex-1 overflow-y-auto relative scroll-smooth">
-          {/* VIEWS */}
-          {activeView === "dashboard" && (
+      {/* SCROLLABLE VIEW AREA */}
+      < div className="flex-1 overflow-y-auto relative scroll-smooth" >
+        {/* VIEWS */}
+        {
+          activeView === "dashboard" && (
             <div className="p-8 animate-slide-in max-w-7xl mx-auto w-full pb-20">
 
               {/* DASHBOARD TABS */}
               <div className="flex gap-4 mb-8 border-b border-[#333] pb-1">
                 <button
                   onClick={() => setDashTab("overview")}
-                  className={`text - sm font - bold uppercase tracking - wider px - 6 py - 3 rounded - t - lg transition - all border - b - 2 ${ dashTab === "overview" ? "border-accent text-accent bg-accent/5" : "border-transparent text-[#888] hover:text-white hover:bg-white/5" } `}
-               >
+                  className={`text - sm font - bold uppercase tracking - wider px - 6 py - 3 rounded - t - lg transition - all border - b - 2 ${dashTab === "overview" ? "border-accent text-accent bg-accent/5" : "border-transparent text-[#888] hover:text-white hover:bg-white/5"} `}
+                >
                   <i className="fa-solid fa-chart-line mr-2"></i> Visão Geral
                 </button>
                 <button
                   onClick={() => setDashTab("financial")}
-                  className={`text - sm font - bold uppercase tracking - wider px - 6 py - 3 rounded - t - lg transition - all border - b - 2 ${ dashTab === "financial" ? "border-accent text-accent bg-accent/5" : "border-transparent text-[#888] hover:text-white hover:bg-white/5" } `}
-               >
+                  className={`text - sm font - bold uppercase tracking - wider px - 6 py - 3 rounded - t - lg transition - all border - b - 2 ${dashTab === "financial" ? "border-accent text-accent bg-accent/5" : "border-transparent text-[#888] hover:text-white hover:bg-white/5"} `}
+                >
                   <i className="fa-solid fa-file-invoice-dollar mr-2"></i> Relatórios Financeiros
                 </button>
               </div>
@@ -2629,7 +2652,7 @@ const App: React.FC = () => {
                       <button
                         onClick={handleQuickStart}
                         className="relative z-10 bg-white text-red-900 px-8 py-3 rounded-lg font-bold uppercase hover:bg-gray-100 hover:scale-105 transition-all shadow-lg flex items-center gap-2 whitespace-nowrap"
-                     >
+                      >
                         <i className="fa-solid fa-rocket"></i> Iniciar Operação (Ð 100)
                       </button>
                     </div>
@@ -2655,8 +2678,8 @@ const App: React.FC = () => {
                           onClick={handleCollect}
                           disabled={state.miningPool < 10}
                           className="bg-dpix-color text-white border-none px-6 py-1.5 rounded text-xs font-bold uppercase disabled:opacity-30 disabled:cursor-not-allowed hover:bg-dpix-color/80 transition-all ml-auto"
-                       >
-                          {state.miningPool>= 10 ? "Transferir Saldo" : `Min: 10.00 Ð`}
+                        >
+                          {state.miningPool >= 10 ? "Transferir Saldo" : `Min: 10.00 Ð`}
                         </button>
                       </div>
                     </div>
@@ -2708,7 +2731,7 @@ const App: React.FC = () => {
                                 <span className="text-neon-green font-mono">{formatBRL(dailyProd)}</span>
                               </div>
                               <div className="h-3 bg-[#222] rounded-full overflow-hidden">
-                                <div className="h-full bg-neon-green transition-all duration-1000" style={{ width: `${ prodPct }% ` }}></div>
+                                <div className="h-full bg-neon-green transition-all duration-1000" style={{ width: `${prodPct}% ` }}></div>
                               </div>
                             </div>
 
@@ -2719,15 +2742,15 @@ const App: React.FC = () => {
                                 <span className="text-neon-red font-mono">{formatBRL(dailyCost)}</span>
                               </div>
                               <div className="h-3 bg-[#222] rounded-full overflow-hidden">
-                                <div className="h-full bg-neon-red transition-all duration-1000" style={{ width: `${ costPct }% ` }}></div>
+                                <div className="h-full bg-neon-red transition-all duration-1000" style={{ width: `${costPct}% ` }}></div>
                               </div>
                             </div>
 
                             {/* Net Profit Indicator */}
                             <div className="pt-4 border-t border-[#333] flex justify-between items-center">
                               <span className="text-xs text-[#888] uppercase font-bold">Lucro Líquido Estimado</span>
-                              <span className={`text - xl font - mono font - bold ${ profit >= 0 ? 'text-neon-green' : 'text-neon-red' } `}>
-                                {profit> 0 ? '+' : ''}{formatBRL(profit)}
+                              <span className={`text - xl font - mono font - bold ${profit >= 0 ? 'text-neon-green' : 'text-neon-red'} `}>
+                                {profit > 0 ? '+' : ''}{formatBRL(profit)}
                               </span>
                             </div>
                           </div>
@@ -2744,10 +2767,10 @@ const App: React.FC = () => {
                       {(() => {
                         const miners = state.inventory.filter(i => i.type === 'miner')
                         const totalHealth = miners.reduce((acc, m) => acc + (m.health || 0), 0)
-                        const avgHealth = miners.length> 0 ? totalHealth / miners.length : 100
+                        const avgHealth = miners.length > 0 ? totalHealth / miners.length : 100
 
                         // Gauge Color Logic
-                        const color = avgHealth> 90 ? '#00e676' : avgHealth> 50 ? '#ffea00' : '#ff5252'
+                        const color = avgHealth > 90 ? '#00e676' : avgHealth > 50 ? '#ffea00' : '#ff5252'
 
                         return (
                           <div className="relative w-[200px] h-[100px] mt-8 overflow-hidden">
@@ -2760,7 +2783,7 @@ const App: React.FC = () => {
                                 borderColor: color,
                                 transform: `rotate(${(avgHealth / 100) * 180 - 180}deg)`
                               }}
-                           ></div>
+                            ></div>
                             {/* Text Value */}
                             <div className="absolute bottom-0 left-1/2 -translate-x-1/2 text-3xl font-bold text-white font-mono">
                               {avgHealth.toFixed(0)}%
@@ -2797,7 +2820,7 @@ const App: React.FC = () => {
                             key={i}
                             className="animate-slide-in break-words"
                             dangerouslySetInnerHTML={{ __html: log }}
-                         ></div>
+                          ></div>
                         ))}
                         <div className="animate-pulse text-neon-green">_</div>
                       </div>
@@ -2814,9 +2837,11 @@ const App: React.FC = () => {
               )}
 
             </div>
-          )}
+          )
+        }
 
-          {activeView === "profile" && (
+        {
+          activeView === "profile" && (
             <div className="p-8 animate-slide-in max-w-6xl mx-auto w-full pb-20">
               {/* Header Section */}
               <div className="relative mb-10">
@@ -2839,13 +2864,13 @@ const App: React.FC = () => {
                       <button
                         onClick={() => {
                           const n = prompt("Novo nome:")
-                          if (n && n.length> 2) {
+                          if (n && n.length > 2) {
                             setState((p) => ({ ...p, username: n.substring(0, 12) }))
                             notify("Nome alterado!", "success")
                           }
                         }}
                         className="w-8 h-8 rounded-full bg-[#222] hover:bg-[#333] flex items-center justify-center text-[#888] hover:text-white transition-all border border-[#333]"
-                     >
+                      >
                         <i className="fa-solid fa-pen text-xs"></i>
                       </button>
                     </div>
@@ -2917,21 +2942,21 @@ const App: React.FC = () => {
                       {(() => {
                         const badges = [
                           { id: 'early', icon: 'fa-rocket', color: 'text-blue-400', bg: 'bg-blue-400/10', border: 'border-blue-400/20', label: 'Pioneiro', condition: true },
-                          { id: 'rich', icon: 'fa-sack-dollar', color: 'text-yellow-400', bg: 'bg-yellow-400/10', border: 'border-yellow-400/20', label: 'Magnata', condition: state.wallet> 100000 },
-                          { id: 'miner', icon: 'fa-server', color: 'text-purple-400', bg: 'bg-purple-400/10', border: 'border-purple-400/20', label: 'Minerador', condition: state.inventory.filter(i => i.type === 'miner').length> 10 },
+                          { id: 'rich', icon: 'fa-sack-dollar', color: 'text-yellow-400', bg: 'bg-yellow-400/10', border: 'border-yellow-400/20', label: 'Magnata', condition: state.wallet > 100000 },
+                          { id: 'miner', icon: 'fa-server', color: 'text-purple-400', bg: 'bg-purple-400/10', border: 'border-purple-400/20', label: 'Minerador', condition: state.inventory.filter(i => i.type === 'miner').length > 10 },
                           {
                             id: 'collector', icon: 'fa-gem', color: 'text-pink-400', bg: 'bg-pink-400/10', border: 'border-pink-400/20', label: 'Colecionador', condition: state.inventory.some(i => {
                               const db = ITEMS_DB[i.type]?.find(x => x.id === i.id);
                               return db?.tier === 'legendary' || db?.tier === 'special';
                             })
                           },
-                          { id: 'social', icon: 'fa-users', color: 'text-green-400', bg: 'bg-green-400/10', border: 'border-green-400/20', label: 'Influencer', condition: (state.referral.users.lvl1 + state.referral.users.lvl2)> 5 },
+                          { id: 'social', icon: 'fa-users', color: 'text-green-400', bg: 'bg-green-400/10', border: 'border-green-400/20', label: 'Influencer', condition: (state.referral.users.lvl1 + state.referral.users.lvl2) > 5 },
                         ];
 
                         return badges.map(badge => (
-                          <div key={badge.id} className={`aspect - square rounded - xl border flex flex - col items - center justify - center gap - 2 transition - all ${ badge.condition ? `${badge.bg} ${badge.border}` : 'bg-[#111] border-[#222] opacity-30 grayscale' } `}>
-                            <i className={`fa - solid ${ badge.icon } text - 2xl ${ badge.condition ? badge.color : 'text-[#555]' } `}></i>
-                            <span className={`text - [10px] font - bold ${ badge.condition ? 'text-white' : 'text-[#555]' } `}>{badge.label}</span>
+                          <div key={badge.id} className={`aspect - square rounded - xl border flex flex - col items - center justify - center gap - 2 transition - all ${badge.condition ? `${badge.bg} ${badge.border}` : 'bg-[#111] border-[#222] opacity-30 grayscale'} `}>
+                            <i className={`fa - solid ${badge.icon} text - 2xl ${badge.condition ? badge.color : 'text-[#555]'} `}></i>
+                            <span className={`text - [10px] font - bold ${badge.condition ? 'text-white' : 'text-[#555]'} `}>{badge.label}</span>
                           </div>
                         ));
                       })()}
@@ -2961,12 +2986,12 @@ const App: React.FC = () => {
                               <td className="p-3 text-[#888] text-xs font-mono">{log.date.split(' ')[0]}</td>
                               <td className="p-3 text-white">
                                 <div className="flex items-center gap-2">
-                                  <span className={`w - 1.5 h - 1.5 rounded - full ${ log.type === 'in' ? 'bg-neon-green' : log.type === 'out' ? 'bg-neon-red' : 'bg-dpix-color' } `}></span>
+                                  <span className={`w - 1.5 h - 1.5 rounded - full ${log.type === 'in' ? 'bg-neon-green' : log.type === 'out' ? 'bg-neon-red' : 'bg-dpix-color'} `}></span>
                                   {log.desc}
                                 </div>
                               </td>
-                              <td className={`p - 3 text - right font - mono font - bold ${ log.type === 'in' ? 'text-neon-green' : log.type === 'out' ? 'text-neon-red' : 'text-dpix-color' } `}>
-                                {typeof log.amount === "number" && log.type !== "coin" ? formatBRL(log.amount) : typeof log.amount === "number" ? `${ log.amount.toFixed(2) } Ð` : log.amount}
+                              <td className={`p - 3 text - right font - mono font - bold ${log.type === 'in' ? 'text-neon-green' : log.type === 'out' ? 'text-neon-red' : 'text-dpix-color'} `}>
+                                {typeof log.amount === "number" && log.type !== "coin" ? formatBRL(log.amount) : typeof log.amount === "number" ? `${log.amount.toFixed(2)} Ð` : log.amount}
                               </td>
                             </tr>
                           ))}
@@ -2990,13 +3015,13 @@ const App: React.FC = () => {
                       <button
                         onClick={() => setBankModal({ type: "deposit" })}
                         className="bg-neon-green text-black py-3 rounded-lg font-bold text-sm hover:bg-green-400 transition-all flex items-center justify-center gap-2"
-                     >
+                      >
                         <i className="fa-solid fa-arrow-down"></i> Depositar
                       </button>
                       <button
                         onClick={() => setBankModal({ type: "withdraw" })}
                         className="bg-[#222] text-white border border-[#333] py-3 rounded-lg font-bold text-sm hover:bg-[#333] transition-all flex items-center justify-center gap-2"
-                     >
+                      >
                         <i className="fa-solid fa-arrow-up"></i> Sacar
                       </button>
                     </div>
@@ -3017,7 +3042,7 @@ const App: React.FC = () => {
                   <div className="bg-card-bg border border-border-color rounded-xl p-6">
                     <div className="flex justify-between items-center mb-4">
                       <h4 className="font-bold text-white text-sm">Taxa de Fidelidade</h4>
-                      <span className={`text - xs font - bold px - 2 py - 0.5 rounded ${ getWithdrawFee(state.createdAt).color } bg - white / 5`}>
+                      <span className={`text - xs font - bold px - 2 py - 0.5 rounded ${getWithdrawFee(state.createdAt).color} bg - white / 5`}>
                         {getWithdrawFee(state.createdAt).label}
                       </span>
                     </div>
@@ -3028,7 +3053,7 @@ const App: React.FC = () => {
                         const days = getAccountAgeDays(state.createdAt);
                         const pct = Math.min(100, (days / 21) * 100);
                         return (
-                          <div className="absolute top-0 left-0 h-full bg-gradient-to-r from-neon-red via-neon-yellow to-neon-green transition-all duration-1000" style={{ width: `${ pct }% ` }}></div>
+                          <div className="absolute top-0 left-0 h-full bg-gradient-to-r from-neon-red via-neon-yellow to-neon-green transition-all duration-1000" style={{ width: `${pct}% ` }}></div>
                         )
                       })()}
                     </div>
@@ -3040,7 +3065,7 @@ const App: React.FC = () => {
                     </div>
 
                     <div className="text-[11px] text-[#888] leading-relaxed">
-                      Quanto mais tempo você mantém sua conta ativa, menor a taxa de saque. <span className="text-white">Atualmente você está no nível {getAccountAgeDays(state.createdAt)> 20 ? 'VIP' : getAccountAgeDays(state.createdAt)> 10 ? 'Intermediário' : 'Iniciante'}.</span>
+                      Quanto mais tempo você mantém sua conta ativa, menor a taxa de saque. <span className="text-white">Atualmente você está no nível {getAccountAgeDays(state.createdAt) > 20 ? 'VIP' : getAccountAgeDays(state.createdAt) > 10 ? 'Intermediário' : 'Iniciante'}.</span>
                     </div>
                   </div>
 
@@ -3058,9 +3083,11 @@ const App: React.FC = () => {
                 </div>
               </div>
             </div>
-          )}
+          )
+        }
 
-          {activeView === "inventory" && (
+        {
+          activeView === "inventory" && (
             <InventoryView
               inventory={state.inventory}
               onUninstall={handleUninstall}
@@ -3069,12 +3096,16 @@ const App: React.FC = () => {
               setActiveView={setActiveView}
               notify={notify}
             />
-          )}
+          )
+        }
 
-          {activeView === "shop" && (
+        {
+          activeView === "shop" && (
             <MarketView filter={shopFilter} setFilter={setShopFilter} onBuy={handleBuy} onOpenBox={processBoxOpening} />
-          )}
-          {activeView === "rigs" && (
+          )
+        }
+        {
+          activeView === "rigs" && (
             <InfraView
               inventory={state.inventory}
               onPayRent={handlePayRent}
@@ -3087,11 +3118,15 @@ const App: React.FC = () => {
               onPayAllEnergy={payAllEnergy} // Passando a função para o InfraView
               onDemolishRoom={demolishRoom} // Passando a função demolishRoom
             />
-          )}
-          {activeView === "ranking" && (
+          )
+        }
+        {
+          activeView === "ranking" && (
             <RankingView leaderboard={leaderboard} userRank={userRank} userNetWorth={userNetWorth} />
-          )}
-          {activeView === "exchange" && (
+          )
+        }
+        {
+          activeView === "exchange" && (
             <div className="p-6 animate-slide-in max-w-[1400px] mx-auto w-full pb-20">
               {/* Market Header */}
               <div className="flex flex-wrap items-center justify-between gap-6 mb-6 bg-[#151621] border border-[#333] p-4 rounded-xl">
@@ -3143,7 +3178,7 @@ const App: React.FC = () => {
                       </div>
                       <div className="flex gap-2">
                         {['1H', '4H', '1D', '1W'].map(t => (
-                          <button key={t} className={`text - [10px] px - 2 py - 1 rounded ${ t === '1D' ? 'bg-[#333] text-white' : 'text-[#666] hover:bg-[#222]' } `}>{t}</button>
+                          <button key={t} className={`text - [10px] px - 2 py - 1 rounded ${t === '1D' ? 'bg-[#333] text-white' : 'text-[#666] hover:bg-[#222]'} `}>{t}</button>
                         ))}
                       </div>
                     </div>
@@ -3163,17 +3198,17 @@ const App: React.FC = () => {
                       {(() => {
                         return [...Array(40)].map((_, i) => {
                           const height = 20 + Math.random() * 60;
-                          const isGreen = Math.random()> 0.45; // Slightly bullish
+                          const isGreen = Math.random() > 0.45; // Slightly bullish
                           return (
                             <div key={i} className="flex-1 flex flex-col justify-center items-center group relative">
-                              <div className={`w - [1px] h - [${ height + 20}%] ${ isGreen ? 'bg-neon-green/50' : 'bg-neon-red/50' } `}></div>
+                              <div className={`w - [1px] h - [${height + 20}%] ${isGreen ? 'bg-neon-green/50' : 'bg-neon-red/50'} `}></div>
                               <div
-                                className={`w - [80 %] absolute ${ isGreen ? 'bg-neon-green' : 'bg-neon-red' } `}
+                                className={`w - [80 %] absolute ${isGreen ? 'bg-neon-green' : 'bg-neon-red'} `}
                                 style={{
-                                  height: `${ Math.max(2, Math.random() * 20) }% `,
-                                  bottom: `${ 30 + Math.random() * 40 }% `
+                                  height: `${Math.max(2, Math.random() * 20)}% `,
+                                  bottom: `${30 + Math.random() * 40}% `
                                 }}
-                             ></div>
+                              ></div>
                             </div>
                           )
                         })
@@ -3220,10 +3255,10 @@ const App: React.FC = () => {
                             </thead>
                             <tbody className="text-[11px] font-mono">
                               {[...Array(10)].map((_, i) => {
-                                const isBuy = Math.random()> 0.5;
+                                const isBuy = Math.random() > 0.5;
                                 return (
                                   <tr key={i} className="hover:bg-white/5">
-                                    <td className={`py - 1 ${ isBuy ? 'text-neon-green' : 'text-neon-red' } `}>1.00</td>
+                                    <td className={`py - 1 ${isBuy ? 'text-neon-green' : 'text-neon-red'} `}>1.00</td>
                                     <td className="py-1 text-right text-white">{(Math.random() * 1000).toFixed(2)}</td>
                                     <td className="py-1 text-right text-[#666]">{new Date(Date.now() - i * 60000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
                                   </tr>
@@ -3250,7 +3285,7 @@ const App: React.FC = () => {
                       <div className="flex flex-col-reverse justify-end h-full gap-0.5">
                         {[...Array(6)].map((_, i) => (
                           <div key={i} className="flex justify-between text-[11px] font-mono relative group cursor-pointer hover:bg-white/5 px-1">
-                            <div className="absolute inset-0 bg-neon-red/10" style={{ width: `${ Math.random() * 40 }% `, right: 0 }}></div>
+                            <div className="absolute inset-0 bg-neon-red/10" style={{ width: `${Math.random() * 40}% `, right: 0 }}></div>
                             <span className="text-neon-red relative z-10">1.00</span>
                             <span className="text-white relative z-10">{(Math.random() * 5000).toFixed(2)}</span>
                           </div>
@@ -3269,7 +3304,7 @@ const App: React.FC = () => {
                       <div className="flex flex-col h-full gap-0.5">
                         {[...Array(6)].map((_, i) => (
                           <div key={i} className="flex justify-between text-[11px] font-mono relative group cursor-pointer hover:bg-white/5 px-1">
-                            <div className="absolute inset-0 bg-neon-green/10" style={{ width: `${ Math.random() * 40 }% `, right: 0 }}></div>
+                            <div className="absolute inset-0 bg-neon-green/10" style={{ width: `${Math.random() * 40}% `, right: 0 }}></div>
                             <span className="text-neon-green relative z-10">1.00</span>
                             <span className="text-white relative z-10">{(Math.random() * 5000).toFixed(2)}</span>
                           </div>
@@ -3283,14 +3318,14 @@ const App: React.FC = () => {
                     <div className="flex bg-[#0b0c15] p-1 rounded-lg border border-[#333]">
                       <button
                         onClick={() => setExchangeDirection("brlToDpix")}
-                        className={`flex - 1 py - 2 rounded - md text - sm font - bold transition - all ${ exchangeDirection === "brlToDpix" ? "bg-neon-green text-black shadow-lg" : "text-[#888] hover:text-white" } `}
-                     >
+                        className={`flex - 1 py - 2 rounded - md text - sm font - bold transition - all ${exchangeDirection === "brlToDpix" ? "bg-neon-green text-black shadow-lg" : "text-[#888] hover:text-white"} `}
+                      >
                         COMPRAR
                       </button>
                       <button
                         onClick={() => setExchangeDirection("dpixToBrl")}
-                        className={`flex - 1 py - 2 rounded - md text - sm font - bold transition - all ${ exchangeDirection === "dpixToBrl" ? "bg-neon-red text-white shadow-lg" : "text-[#888] hover:text-white" } `}
-                     >
+                        className={`flex - 1 py - 2 rounded - md text - sm font - bold transition - all ${exchangeDirection === "dpixToBrl" ? "bg-neon-red text-white shadow-lg" : "text-[#888] hover:text-white"} `}
+                      >
                         VENDER
                       </button>
                     </div>
@@ -3298,7 +3333,7 @@ const App: React.FC = () => {
                     <div className="flex justify-between text-xs text-[#888]">
                       <span>Disponível:</span>
                       <span className="font-bold text-white">
-                        {exchangeDirection === "brlToDpix" ? formatBRL(state.wallet) : `${ state.dpix.toFixed(2) } Ð`}
+                        {exchangeDirection === "brlToDpix" ? formatBRL(state.wallet) : `${state.dpix.toFixed(2)} Ð`}
                       </span>
                     </div>
 
@@ -3329,13 +3364,13 @@ const App: React.FC = () => {
                     <div className="bg-[#0b0c15] border border-[#333] rounded-lg p-3 flex justify-between items-center">
                       <span className="text-xs text-[#888]">Você recebe:</span>
                       <div className="text-right">
-                        <div className={`font - bold font - mono ${ exchangeDirection === "brlToDpix" ? "text-dpix-color" : "text-neon-green" } `}>
+                        <div className={`font - bold font - mono ${exchangeDirection === "brlToDpix" ? "text-dpix-color" : "text-neon-green"} `}>
                           {exchangeDirection === "dpixToBrl"
-                            ? sellAmount && Number.parseFloat(sellAmount)> 0
+                            ? sellAmount && Number.parseFloat(sellAmount) > 0
                               ? formatBRL(Number.parseFloat(sellAmount) * DPIX_PRICE_BRL * (1 - EXCHANGE_FEE))
                               : "R$ 0.00"
-                            : buyAmount && Number.parseFloat(buyAmount)> 0
-                              ? `${ (Number.parseFloat(buyAmount) / DPIX_PRICE_BRL).toFixed(2) } Ð`
+                            : buyAmount && Number.parseFloat(buyAmount) > 0
+                              ? `${(Number.parseFloat(buyAmount) / DPIX_PRICE_BRL).toFixed(2)} Ð`
                               : "0.00 Ð"}
                         </div>
                         {exchangeDirection === "dpixToBrl" && (
@@ -3348,7 +3383,7 @@ const App: React.FC = () => {
                       onClick={() => {
                         if (exchangeDirection === "dpixToBrl") {
                           const amount = Number.parseFloat(sellAmount)
-                          if (amount> state.dpix) {
+                          if (amount > state.dpix) {
                             notify("Saldo insuficiente de DPIX", "error")
                             return
                           }
@@ -3364,7 +3399,7 @@ const App: React.FC = () => {
                           })
                         } else {
                           const amount = Number.parseFloat(buyAmount)
-                          if (amount> state.wallet) {
+                          if (amount > state.wallet) {
                             notify("Saldo insuficiente de BRL", "error")
                             return
                           }
@@ -3378,12 +3413,11 @@ const App: React.FC = () => {
                           })
                         }
                       }}
-                      className={`w - full py - 3 rounded - lg font - bold uppercase transition - all hover: scale - [1.02] ${
-    exchangeDirection === "brlToDpix"
-      ? "bg-neon-green text-black hover:shadow-[0_0_20px_rgba(0,230,118,0.4)]"
-      : "bg-neon-red text-white hover:shadow-[0_0_20px_rgba(255,82,82,0.4)]"
-  } `}
-                   >
+                      className={`w - full py - 3 rounded - lg font - bold uppercase transition - all hover: scale - [1.02] ${exchangeDirection === "brlToDpix"
+                        ? "bg-neon-green text-black hover:shadow-[0_0_20px_rgba(0,230,118,0.4)]"
+                        : "bg-neon-red text-white hover:shadow-[0_0_20px_rgba(255,82,82,0.4)]"
+                        } `}
+                    >
                       {exchangeDirection === "brlToDpix" ? "Comprar DPIX" : "Vender DPIX"}
                     </button>
 
@@ -3392,9 +3426,11 @@ const App: React.FC = () => {
 
               </div>
             </div>
-          )}
+          )
+        }
 
-          {activeView === "referrals" && (
+        {
+          activeView === "referrals" && (
             <div className="p-8 animate-slide-in max-w-6xl mx-auto w-full pb-20">
 
               {/* HEADER HERO */}
@@ -3417,29 +3453,29 @@ const App: React.FC = () => {
                           type="text"
                           readOnly
                           value={`https://cryptotycoon.pro/r/${state.referral.code}`}
-  className = "bg-transparent border-none text-blue-400 font-mono text-sm w-full outline-none"
-    />
-    <button
-      onClick={() => {
-        navigator.clipboard.writeText(`https://cryptotycoon.pro/r/${state.referral.code}`)
-        notify("Link copiado!", "info")
-      }}
-      className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-md font-bold text-xs transition-all ml-2"
-    >
-      COPIAR
-    </button>
+                          className="bg-transparent border-none text-blue-400 font-mono text-sm w-full outline-none"
+                        />
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(`https://cryptotycoon.pro/r/${state.referral.code}`)
+                            notify("Link copiado!", "info")
+                          }}
+                          className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-md font-bold text-xs transition-all ml-2"
+                        >
+                          COPIAR
+                        </button>
                       </div >
-  <button
-    className="bg-[#1da1f2] hover:bg-[#1a91da] text-white px-6 py-3 rounded-lg font-bold flex items-center justify-center gap-2 transition-all"
-    onClick={() => window.open(`https://twitter.com/intent/tweet?text=Venha%20minerar%20comigo%20no%20Crypto%20Tycoon!%20Use%20meu%20código:%20${state.referral.code}&url=https://cryptotycoon.pro/r/${state.referral.code}`, '_blank')}
-  >
-    <i className="fa-brands fa-twitter"></i> Compartilhar
-  </button>
+                      <button
+                        className="bg-[#1da1f2] hover:bg-[#1a91da] text-white px-6 py-3 rounded-lg font-bold flex items-center justify-center gap-2 transition-all"
+                        onClick={() => window.open(`https://twitter.com/intent/tweet?text=Venha%20minerar%20comigo%20no%20Crypto%20Tycoon!%20Use%20meu%20código:%20${state.referral.code}&url=https://cryptotycoon.pro/r/${state.referral.code}`, '_blank')}
+                      >
+                        <i className="fa-brands fa-twitter"></i> Compartilhar
+                      </button>
                     </div >
                   </div >
 
-  {/* Quick Stats Circle */ }
-  < div className = "relative w-40 h-40 flex items-center justify-center shrink-0" >
+                  {/* Quick Stats Circle */}
+                  < div className="relative w-40 h-40 flex items-center justify-center shrink-0" >
                     <div className="absolute inset-0 border-4 border-blue-500/20 rounded-full border-t-blue-500 animate-spin-slow"></div>
                     <div className="text-center">
                       <div className="text-3xl font-bold text-white font-mono">{state.referral.users.lvl1 + state.referral.users.lvl2 + state.referral.users.lvl3}</div>
@@ -3449,10 +3485,10 @@ const App: React.FC = () => {
                 </div >
               </div >
 
-  {/* STATS CARDS */ }
-  < div className = "grid grid-cols-1 md:grid-cols-3 gap-6 mb-8" >
-    {/* Total Earned */ }
-    < div className = "bg-card-bg border border-border-color rounded-xl p-6 relative overflow-hidden group" >
+              {/* STATS CARDS */}
+              < div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8" >
+                {/* Total Earned */}
+                < div className="bg-card-bg border border-border-color rounded-xl p-6 relative overflow-hidden group" >
                   <div className="absolute right-0 top-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
                     <i className="fa-solid fa-sack-dollar text-6xl text-white"></i>
                   </div>
@@ -3461,8 +3497,8 @@ const App: React.FC = () => {
                   <div className="text-[11px] text-[#666] mt-1">Ganho Vitalício</div>
                 </div >
 
-  {/* Available Balance */ }
-  < div className = "bg-card-bg border border-border-color rounded-xl p-6 relative overflow-hidden group" >
+                {/* Available Balance */}
+                < div className="bg-card-bg border border-border-color rounded-xl p-6 relative overflow-hidden group" >
                   <div className="absolute right-0 top-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
                     <i className="fa-solid fa-wallet text-6xl text-white"></i>
                   </div>
@@ -3470,7 +3506,7 @@ const App: React.FC = () => {
                   <div className="text-2xl font-bold text-white font-mono">{formatBRL(state.referral.balance)}</div>
                   <button
                     onClick={() => {
-                      if (state.referral.balance> 0) {
+                      if (state.referral.balance > 0) {
                         setState((p) => ({
                           ...p,
                           wallet: p.wallet + p.referral.balance,
@@ -3481,13 +3517,13 @@ const App: React.FC = () => {
                     }}
                     disabled={state.referral.balance <= 0}
                     className="mt-3 w-full bg-neon-green/10 hover:bg-neon-green/20 text-neon-green border border-neon-green/30 py-2 rounded text-xs font-bold uppercase transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                 >
+                  >
                     Resgatar
                   </button>
                 </div >
 
-  {/* Network Size */ }
-  < div className = "bg-card-bg border border-border-color rounded-xl p-6 relative overflow-hidden group" >
+                {/* Network Size */}
+                < div className="bg-card-bg border border-border-color rounded-xl p-6 relative overflow-hidden group" >
                   <div className="absolute right-0 top-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
                     <i className="fa-solid fa-network-wired text-6xl text-white"></i>
                   </div>
@@ -3502,743 +3538,744 @@ const App: React.FC = () => {
                 </div >
               </div >
 
-  {/* TIERS EXPLANATION */ }
-  < h3 className = "text-white font-bold mb-4 flex items-center gap-2" >
-    <i className="fa-solid fa-layer-group text-[#888]"></i> Estrutura de Comissões
+              {/* TIERS EXPLANATION */}
+              < h3 className="text-white font-bold mb-4 flex items-center gap-2" >
+                <i className="fa-solid fa-layer-group text-[#888]"></i> Estrutura de Comissões
               </h3 >
-  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-    {/* Level 1 */}
-    <div className="bg-[#151621] border border-neon-green/30 rounded-xl p-5 relative">
-      <div className="absolute -top-3 left-4 bg-[#151621] px-2 text-neon-green text-xs font-bold border border-neon-green/30 rounded">NÍVEL 1</div>
-      <div className="flex justify-between items-start mb-4">
-        <div>
-          <div className="text-lg font-bold text-white">5%</div>
-          <div className="text-[10px] text-[#888]">dos depósitos</div>
-        </div>
-        <i className="fa-solid fa-user text-neon-green text-xl bg-neon-green/10 p-2 rounded-lg"></i>
-      </div>
-      <div className="text-xs text-[#aaa] leading-relaxed">
-        Receba 5% de tudo que seus indicados diretos depositarem ou minerarem.
-      </div>
-      <div className="mt-4 pt-4 border-t border-[#333] flex justify-between items-center">
-        <span className="text-[10px] text-[#666] uppercase font-bold">Seus Indicados</span>
-        <span className="text-white font-mono font-bold">{state.referral.users.lvl1}</span>
-      </div>
-    </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                {/* Level 1 */}
+                <div className="bg-[#151621] border border-neon-green/30 rounded-xl p-5 relative">
+                  <div className="absolute -top-3 left-4 bg-[#151621] px-2 text-neon-green text-xs font-bold border border-neon-green/30 rounded">NÍVEL 1</div>
+                  <div className="flex justify-between items-start mb-4">
+                    <div>
+                      <div className="text-lg font-bold text-white">5%</div>
+                      <div className="text-[10px] text-[#888]">dos depósitos</div>
+                    </div>
+                    <i className="fa-solid fa-user text-neon-green text-xl bg-neon-green/10 p-2 rounded-lg"></i>
+                  </div>
+                  <div className="text-xs text-[#aaa] leading-relaxed">
+                    Receba 5% de tudo que seus indicados diretos depositarem ou minerarem.
+                  </div>
+                  <div className="mt-4 pt-4 border-t border-[#333] flex justify-between items-center">
+                    <span className="text-[10px] text-[#666] uppercase font-bold">Seus Indicados</span>
+                    <span className="text-white font-mono font-bold">{state.referral.users.lvl1}</span>
+                  </div>
+                </div>
 
-    {/* Level 2 */}
-    <div className="bg-[#151621] border border-neon-yellow/30 rounded-xl p-5 relative">
-      <div className="absolute -top-3 left-4 bg-[#151621] px-2 text-neon-yellow text-xs font-bold border border-neon-yellow/30 rounded">NÍVEL 2</div>
-      <div className="flex justify-between items-start mb-4">
-        <div>
-          <div className="text-lg font-bold text-white">3%</div>
-          <div className="text-[10px] text-[#888]">dos depósitos</div>
-        </div>
-        <i className="fa-solid fa-user-group text-neon-yellow text-xl bg-neon-yellow/10 p-2 rounded-lg"></i>
-      </div>
-      <div className="text-xs text-[#aaa] leading-relaxed">
-        Ganhe 3% sobre os indicados dos seus indicados. A rede cresce sozinha!
-      </div>
-      <div className="mt-4 pt-4 border-t border-[#333] flex justify-between items-center">
-        <span className="text-[10px] text-[#666] uppercase font-bold">Seus Indicados</span>
-        <span className="text-white font-mono font-bold">{state.referral.users.lvl2}</span>
-      </div>
-    </div>
+                {/* Level 2 */}
+                <div className="bg-[#151621] border border-neon-yellow/30 rounded-xl p-5 relative">
+                  <div className="absolute -top-3 left-4 bg-[#151621] px-2 text-neon-yellow text-xs font-bold border border-neon-yellow/30 rounded">NÍVEL 2</div>
+                  <div className="flex justify-between items-start mb-4">
+                    <div>
+                      <div className="text-lg font-bold text-white">3%</div>
+                      <div className="text-[10px] text-[#888]">dos depósitos</div>
+                    </div>
+                    <i className="fa-solid fa-user-group text-neon-yellow text-xl bg-neon-yellow/10 p-2 rounded-lg"></i>
+                  </div>
+                  <div className="text-xs text-[#aaa] leading-relaxed">
+                    Ganhe 3% sobre os indicados dos seus indicados. A rede cresce sozinha!
+                  </div>
+                  <div className="mt-4 pt-4 border-t border-[#333] flex justify-between items-center">
+                    <span className="text-[10px] text-[#666] uppercase font-bold">Seus Indicados</span>
+                    <span className="text-white font-mono font-bold">{state.referral.users.lvl2}</span>
+                  </div>
+                </div>
 
-    {/* Level 3 */}
-    <div className="bg-[#151621] border border-neon-red/30 rounded-xl p-5 relative">
-      <div className="absolute -top-3 left-4 bg-[#151621] px-2 text-neon-red text-xs font-bold border border-neon-red/30 rounded">NÍVEL 3</div>
-      <div className="flex justify-between items-start mb-4">
-        <div>
-          <div className="text-lg font-bold text-white">1%</div>
-          <div className="text-[10px] text-[#888]">dos depósitos</div>
-        </div>
-        <i className="fa-solid fa-users text-neon-red text-xl bg-neon-red/10 p-2 rounded-lg"></i>
-      </div>
-      <div className="text-xs text-[#aaa] leading-relaxed">
-        Ganhe 1% até o terceiro nível de profundidade. Renda passiva real.
-      </div>
-      <div className="mt-4 pt-4 border-t border-[#333] flex justify-between items-center">
-        <span className="text-[10px] text-[#666] uppercase font-bold">Seus Indicados</span>
-        <span className="text-white font-mono font-bold">{state.referral.users.lvl3}</span>
-      </div>
-    </div>
-  </div>
+                {/* Level 3 */}
+                <div className="bg-[#151621] border border-neon-red/30 rounded-xl p-5 relative">
+                  <div className="absolute -top-3 left-4 bg-[#151621] px-2 text-neon-red text-xs font-bold border border-neon-red/30 rounded">NÍVEL 3</div>
+                  <div className="flex justify-between items-start mb-4">
+                    <div>
+                      <div className="text-lg font-bold text-white">1%</div>
+                      <div className="text-[10px] text-[#888]">dos depósitos</div>
+                    </div>
+                    <i className="fa-solid fa-users text-neon-red text-xl bg-neon-red/10 p-2 rounded-lg"></i>
+                  </div>
+                  <div className="text-xs text-[#aaa] leading-relaxed">
+                    Ganhe 1% até o terceiro nível de profundidade. Renda passiva real.
+                  </div>
+                  <div className="mt-4 pt-4 border-t border-[#333] flex justify-between items-center">
+                    <span className="text-[10px] text-[#666] uppercase font-bold">Seus Indicados</span>
+                    <span className="text-white font-mono font-bold">{state.referral.users.lvl3}</span>
+                  </div>
+                </div>
+              </div>
 
             </div >
-          )}
-        </div >
-  <div className="fixed top-5 right-5 z-[9999] flex flex-col gap-2.5 pointer-events-none">
-    {toasts.map((t) => (
-      <div
-        key={t.id}
-        className={`bg-[#151621]/95 border-l-4 text-white px-5 py-4 rounded shadow-lg min-w-[300px] backdrop-blur pointer-events-auto animate-slide-in flex items-center justify-between text-[13px] ${t.type === "success" ? "border-neon-green" : t.type === "error" ? "border-neon-red" : "border-dpix-color"
-          }`}
-      >
-        <div className="flex items-center gap-2.5">
-          {t.type === "success" && <i className="fa-solid fa-check-circle text-neon-green"></i>}
-          {t.type === "error" && <i className="fa-solid fa-circle-xmark text-neon-red"></i>}
-          {t.type === "info" && <i className="fa-solid fa-info-circle text-dpix-color"></i>}
-          <span>{t.msg}</span>
-        </div>
-      </div>
-    ))}
-  </div>
-{
-  notification && (
-    <div
-      className={`fixed bottom-5 right-5 z-[9999] bg-[#151621]/95 border-l-4 text-white px-5 py-4 rounded shadow-lg min-w-[300px] backdrop-blur pointer-events-auto animate-slide-in flex items-center gap-2.5 text-[13px] border-${notification.color} `}
-    >
-      <i
-        className={`fa-solid ${notification.color === "red"
-          ? "fa-circle-xmark text-red-500"
-          : notification.color === "green"
-            ? "fa-check-circle text-green-500"
-            : "fa-info-circle text-blue-500"
-          }`}
-      ></i>
-      {notification.message}
-    </div>
-  )
-}
-{
-  buyModal && (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[2000] flex items-center justify-center">
-      <div className="bg-card-bg border border-border-color p-6 rounded-xl w-[90%] max-w-[500px] shadow-2xl">
-        <div className="text-center mb-4">
-          <div className="text-lg font-bold text-white mb-1">{buyModal.item.name}</div>
-          <div className="text-xs text-[#888] uppercase">
-            {buyModal.item.isSpecial
-              ? "Mineradora Especial (Skin)"
-              : buyModal.type === "room"
-                ? "Quarto"
-                : buyModal.type === "shelf"
-                  ? "Prateleira"
-                  : "Mineradora"}{" "}
-            • {buyModal.item.tier}
-          </div>
-          {buyModal.item.tier === "box" && (
-            <div className="mt-1 text-[11px] text-[#aaa]">
-              Probabilidades:
-              <br />
-              Basic: 60% | Comum: 25% | Raro: 10%
-              <br />
-              Épico: 4% | Lendário: 1%
-            </div>
-          )}
-          {buyModal.item.desc && <div className="text-[11px] text-[#aaa] mt-2 italic">"{buyModal.item.desc}"</div>}
-          {buyModal.item.isSpecial && (
-            <div className="mt-1 text-tier-special text-[11px]">Item exclusivo comprado com DPIX</div>
-          )}
-        </div>
-        <div className="bg-[#111] p-4 rounded-lg flex justify-between items-center border border-[#333]">
-          <span className="text-[#aaa]">Preço:</span>
-          <span className="font-bold text-lg text-dpix-color">Ð {buyModal.item.price}</span>
-        </div>
-        {buyModal.type === "room" && !buyModal.item.isSpecial && !buyModal.item.subtype && (
-          <div className="mt-1 text-[11px] text-[#aaa] text-right">Aluguel: R$ {buyModal.item.rent}/12h</div>
-        )}
-        <div className="mt-2.5 text-[11px] text-[#666] text-center">Seu saldo: {state.dpix.toFixed(2)} DPIX</div>
-        <div className="flex justify-end gap-2.5 mt-5">
-          <button
-            onClick={() => setBuyModal(null)}
-            className="bg-transparent border border-[#555] text-[#aaa] px-4 py-1.5 rounded text-xs font-bold cursor-pointer"
-          >
-            Cancelar
-          </button>
-          <button
-            onClick={() => {
-              handleBuy(buyModal.item, buyModal.type)
-              setBuyModal(null)
-            }}
-            className="bg-neon-green text-black border-none px-4 py-1.5 rounded text-xs font-bold cursor-pointer hover:scale-105 transition-all"
-          >
-            CONFIRMAR
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-{
-  payModal && (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[2000] flex items-center justify-center">
-      <div className="bg-card-bg border border-border-color p-6 rounded-xl w-[90%] max-w-[500px] shadow-2xl">
-        <div className="text-center mb-5 text-white font-bold text-lg flex flex-col items-center">
-          <i className="fa-solid fa-bolt text-neon-orange mb-2 text-2xl"></i>
-          Pagar Energia
-        </div>
-
-        <div className="text-center mb-5">
-          <div className="text-base text-white font-bold">
-            {ITEMS_DB.room.find((r) => r.id === state.inventory.find((i) => i.uid === payModal.roomUid)?.id)?.name}
-          </div>
-        </div>
-
-        <div className="bg-[#111] border border-[#333] rounded-lg p-4 mb-4">
-          <div className="flex justify-between mb-1.5">
-            <span className="text-[#aaa]">Custo (12h):</span>
-            <span className="text-neon-orange font-bold">
-              Ð{" "}
-              {
-                ITEMS_DB.room.find((r) => r.id === state.inventory.find((i) => i.uid === payModal.roomUid)?.id)
-                  ?.rent
-              }
-            </span>
-          </div>
-          <div className="flex justify-between text-xs">
-            <span className="text-[#666]">Seu Saldo (DPIX):</span>
-            <span className="text-neon-green">Ð {state.dpix.toFixed(2)}</span>
-          </div>
-        </div>
-        <div className="text-[11px] text-[#888] text-center mb-5">
-          Isso irá restaurar o timer de energia para 12 horas.
-        </div>
-
-        <div className="flex justify-end gap-2.5 mt-5">
-          <button
-            onClick={() => setPayModal(null)}
-            className="bg-transparent border border-[#555] text-[#aaa] px-4 py-2 rounded text-sm font-bold cursor-pointer hover:bg-[#2a2d3a] transition-all"
-          >
-            Cancelar
-          </button>
-          <button
-            onClick={processPayRent}
-            className="bg-neon-orange text-black border-none px-4 py-2 rounded text-sm font-bold cursor-pointer hover:bg-orange-400 transition-all"
-          >
-            PAGAR AGORA
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-{
-  payAllModal && (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[2000] flex items-center justify-center">
-      <div className="bg-card-bg border border-border-color p-6 rounded-xl w-[90%] max-w-[500px] shadow-2xl">
-        <div className="text-center mb-5 text-white font-bold text-lg flex flex-col items-center">
-          <i className="fa-solid fa-bolt text-neon-yellow mb-2 text-3xl animate-pulse"></i>
-          Confirmar Pagamento em Massa
-        </div>
-
-        <div className="text-center mb-5">
-          <div className="text-base text-white font-bold">
-            Setor {payAllModal.rarity.charAt(0).toUpperCase() + payAllModal.rarity.slice(1)}
-          </div>
-          <div className="text-sm text-[#aaa] mt-1">
-            {payAllModal.count} {payAllModal.count === 1 ? "quarto precisa" : "quartos precisam"} de energia
-          </div>
-        </div>
-
-        <div className="bg-[#111] border border-[#333] rounded-lg p-4 mb-4">
-          <div className="flex justify-between mb-1.5">
-            <span className="text-[#aaa]">Custo Total (12h cada):</span>
-            <span className="text-neon-orange font-bold text-lg">Ð {payAllModal.total.toFixed(2)}</span>
-          </div>
-          <div className="flex justify-between text-xs">
-            <span className="text-[#666]">Seu Saldo (DPIX):</span>
-            <span className={state.dpix >= payAllModal.total ? "text-neon-green" : "text-red-500"}>
-              Ð {state.dpix.toFixed(2)}
-            </span>
-          </div>
-          {state.dpix < payAllModal.total && (
-            <div className="text-xs text-red-500 mt-2 text-center">
-              Saldo insuficiente! Faltam: Ð {(payAllModal.total - state.dpix).toFixed(2)}
-            </div>
-          )}
-        </div>
-        <div className="text-[11px] text-[#888] text-center mb-5">
-          Isso irá renovar a energia de todos os {payAllModal.count} quartos para 12 horas cada.
-        </div>
-
-        <div className="flex justify-end gap-2.5 mt-5">
-          <button
-            onClick={() => setPayAllModal(null)}
-            className="bg-transparent border border-[#555] text-[#aaa] px-4 py-2 rounded text-sm font-bold cursor-pointer hover:bg-[#2a2d3a] transition-all"
-          >
-            Cancelar
-          </button>
-          <button
-            onClick={processPayAllEnergy}
-            disabled={state.dpix < payAllModal.total}
-            className="bg-gradient-to-r from-neon-yellow to-neon-orange text-black border-none px-6 py-2 rounded text-sm font-bold cursor-pointer hover:shadow-[0_0_20px_rgba(255,193,7,0.5)] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <i className="fa-solid fa-bolt mr-2"></i>
-            CONFIRMAR PAGAMENTO
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-{
-  installModal && (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[2000] flex items-center justify-center">
-      <div className="bg-card-bg border border-border-color p-6 rounded-xl w-[90%] max-w-[500px] shadow-2xl">
-        <div className="text-lg font-bold text-white mb-4">Instalar Item</div>
-        <div className="text-[#aaa] text-sm mb-2">Selecione um item do inventário:</div>
-        <div className="max-h-[300px] overflow-y-auto flex flex-col gap-2.5 my-4">
-          {state.inventory.filter((i) => i.type === installModal.typeNeeded && i.parentId === null).length === 0 ? (
-            <div className="text-[#888] text-center py-4">
-              Sem itens disponíveis.
-              <br />
-              Vá ao Mercado comprar.
-            </div>
-          ) : (
-            state.inventory
-              .filter((i) => i.type === installModal.typeNeeded && i.parentId === null)
-              .map((item) => {
-                const db = ITEMS_DB[item.type].find((x) => x.id === item.id)
-                const health = item.health ?? 100
-                const isBroken = health <= 0
-
-                return (
-                  <div
-                    key={item.uid}
-                    className={`p-2.5 border rounded bg-[#111] flex justify-between items-center ${isBroken ? "border-red-500 opacity-60" : "border-[#333] hover:border-accent"
-                      } group relative`}
-                    style={{ borderLeft: `3px solid ${isBroken ? "#ff5252" : getTierColor(db?.tier || "basic")}` }}
-                  >
-                    <div className="flex-1">
-                      <div
-                        className={`font-bold ${isBroken ? "text-red-500" : "text-white group-hover:text-accent"} transition-colors flex items-center gap-2`}
-                      >
-                        {db?.name}
-                        {isBroken && (
-                          <span className="text-[10px] bg-red-500/20 text-red-500 px-2 py-0.5 rounded uppercase font-bold">
-                            Superaquecida
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-[11px] text-[#888] uppercase">{db?.tier}</div>
-                      {item.type === "miner" && (
-                        <div className="flex items-center gap-1.5 mt-1">
-                          <i
-                            className={`fa-solid fa-temperature-${isBroken ? "full" : health > 50 ? "low" : health > 20 ? "half" : "high"} text-[10px]`}
-                            style={{
-                              color: isBroken
-                                ? "#ff5252"
-                                : health > 50
-                                  ? "#00e676"
-                                  : health > 20
-                                    ? "#ffea00"
-                                    : "#ff5252",
-                            }}
-                          ></i>
-                          <div className="w-20 h-1.5 bg-black/50 rounded-full overflow-hidden">
-                            <div
-                              className={`h-full transition-all ${health > 50 ? "bg-green-500" : health > 20 ? "bg-yellow-500" : "bg-red-600"
-                                }`}
-                              style={{ width: `${health}%` }}
-                            ></div>
-                          </div>
-                          <span
-                            className="text-[10px] font-mono"
-                            style={{
-                              color: isBroken
-                                ? "#ff5252"
-                                : health > 50
-                                  ? "#00e676"
-                                  : health > 20
-                                    ? "#ffea00"
-                                    : "#ff5252",
-                            }}
-                          >
-                            {health.toFixed(0)}%
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                    {isBroken ? (
-                      <button
-                        onClick={() => {
-                          handleRepairRequest([item.uid])
-                        }}
-                        className="bg-neon-orange text-black px-3 py-1.5 rounded text-xs font-bold hover:bg-orange-400 cursor-pointer flex items-center gap-1.5 whitespace-nowrap"
-                      >
-                        <i className="fa-solid fa-wrench"></i>
-                        MANUTENÇÃO (Ð 50)
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => handleInstall(item.uid)}
-                        className="border border-neon-green text-neon-green px-3 py-1 rounded text-xs font-bold hover:bg-neon-green hover:text-black cursor-pointer"
-                      >
-                        INSTALAR
-                      </button>
-                    )}
-                  </div>
-                )
-              })
-          )}
-        </div>
-        <div className="text-right">
-          <button
-            onClick={() => setInstallModal(null)}
-            className="bg-transparent border border-[#555] text-[#aaa] px-4 py-1.5 rounded text-xs font-bold cursor-pointer hover:bg-white hover:text-black"
-          >
-            Cancelar
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-{
-  bankModal && (
-    <BankModal
-      type={bankModal.type}
-      balance={state.wallet}
-      createdAt={state.createdAt}
-      onClose={() => setBankModal(null)}
-      onConfirm={handleBankAction}
-    />
-  )
-}
-{ boxAnim && <BoxOpeningModal wonItem={boxAnim.wonItem} tier={boxAnim.tier} onClose={() => setBoxAnim(null)} /> }
-{
-  demolishModal?.show && (
-    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-900 border border-red-500/30 rounded-lg p-6 max-w-md w-full shadow-2xl">
-        <div className="flex items-center gap-3 mb-4">
-          <i className="fas fa-exclamation-triangle text-red-500 text-2xl"></i>
-          <h3 className="text-xl font-bold text-red-500">Confirmar Demolição</h3>
-        </div>
-
-        <div className="space-y-4 mb-6">
-          <p className="text-gray-300">Você está prestes a demolir o quarto:</p>
-          <p className="text-center text-xl font-bold text-white bg-gray-800 p-3 rounded border border-gray-700">
-            {demolishModal.roomName}
-          </p>
-          <div className="bg-green-500/10 border border-green-500/30 rounded p-3">
-            <p className="text-green-400 text-center">
-              Você receberá: <span className="font-bold text-lg">Ð 8.00</span>
-            </p>
-          </div>
-          <p className="text-red-400 text-sm text-center font-semibold">⚠ Esta ação é irreversível!</p>
-        </div>
-
-        <div className="flex gap-3">
-          <button
-            onClick={() => setDemolishModal(null)}
-            className="flex-1 px-4 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded font-semibold transition-colors"
-          >
-            Cancelar
-          </button>
-          <button
-            onClick={confirmDemolish}
-            className="flex-1 px-4 py-3 bg-red-600 hover:bg-red-700 text-white rounded font-semibold transition-colors"
-          >
-            Demolir
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-{
-  exchangeModal.open && (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-[#0f1015] border-2 border-dpix-color rounded-lg p-6 max-w-md w-full shadow-[0_0_40px_rgba(217,70,239,0.3)]">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-2xl font-bold text-white flex items-center gap-2">
-            <i className="fa-solid fa-exchange-alt text-dpix-color"></i>
-            {exchangeModal.mode === "dpix-to-brl" ? "DPIX → BRL" : "BRL → DPIX"}
-          </h2>
-          <button
-            onClick={() => {
-              setExchangeModal({ open: false, mode: null })
-              setExchangeAmount("")
-            }}
-            className="text-[#888] hover:text-white transition-colors"
-          >
-            <i className="fa-solid fa-times text-xl"></i>
-          </button>
-        </div>
-
-        <div className="space-y-4">
-          {/* Informações da Cotação */}
-          <div className="bg-[#1a1a2e] border border-border-color rounded-lg p-4 space-y-2">
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-400">Taxa de Câmbio:</span>
-              <span className="text-white font-bold">
-                {exchangeModal.mode === "dpix-to-brl" ? "100 DPIX = R$ 1,00" : "R$ 1,00 = 100 DPIX"}
-              </span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-400">Taxa de Serviço:</span>
-              <span className="text-yellow-400 font-bold">2%</span>
-            </div>
-            <div className="flex justify-between text-sm border-t border-border-color pt-2">
-              <span className="text-gray-400">Seu Saldo:</span>
-              <span className="text-neon-green font-bold font-mono">
-                {exchangeModal.mode === "dpix-to-brl" ? `Ð ${state.dpix.toFixed(2)}` : formatBRL(state.wallet)}
-              </span>
-            </div>
-          </div>
-
-          {/* Input de Valor */}
-          <div>
-            <label className="block text-sm text-gray-400 mb-2">Quanto deseja converter?</label>
-            <input
-              type="number"
-              value={exchangeAmount}
-              onChange={(e) => {
-                setExchangeAmount(e.target.value)
-              }}
-              placeholder={exchangeModal.mode === "dpix-to-brl" ? "Digite DPIX" : "Digite BRL"}
-              className="w-full bg-[#1a1a2e] border border-border-color rounded-lg px-4 py-3 text-white font-mono text-lg focus:outline-none focus:border-dpix-color"
-              step="0.01"
-              min="0"
-              autoFocus
-            />
-          </div>
-
-          {/* Preview da Conversão */}
-          {exchangeAmount && Number.parseFloat(exchangeAmount) > 0 && (
-            <div className="bg-[#1a1a2e] border border-dpix-color/50 rounded-lg p-4 space-y-2">
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-400">Você está convertendo:</span>
-                <span className="text-white font-bold">
-                  {exchangeModal.mode === "dpix-to-brl"
-                    ? `Ð ${Number.parseFloat(exchangeAmount).toFixed(2)}`
-                    : `R$ ${Number.parseFloat(exchangeAmount).toFixed(2)}`}
-                </span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-400">Taxa (2%):</span>
-                <span className="text-yellow-400 font-bold">
-                  {exchangeModal.mode === "dpix-to-brl"
-                    ? `R$ ${((Number.parseFloat(exchangeAmount) / EXCHANGE_RATE) * CURRENT_EXCHANGE_FEE).toFixed(2)}`
-                    : `R$ ${(Number.parseFloat(exchangeAmount) * CURRENT_EXCHANGE_FEE).toFixed(2)}`}
-                </span>
-              </div>
-              <div className="flex justify-between text-sm border-t border-dpix-color/30 pt-2">
-                <span className="text-gray-400">Você receberá:</span>
-                <span className="text-neon-green font-bold text-lg">
-                  {exchangeModal.mode === "dpix-to-brl"
-                    ? `R$ ${((Number.parseFloat(exchangeAmount) / EXCHANGE_RATE) * (1 - CURRENT_EXCHANGE_FEE)).toFixed(2)}`
-                    : `Ð ${(Number.parseFloat(exchangeAmount) * (1 - CURRENT_EXCHANGE_FEE) * EXCHANGE_RATE).toFixed(2)}`}
-                </span>
-              </div>
-            </div>
-          )}
-
-          {/* Botões de Ação */}
-          <div className="flex gap-3 pt-2">
-            <button
-              onClick={() => {
-                setExchangeModal({ open: false, mode: null })
-                setExchangeAmount("")
-              }}
-              className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-3 rounded-lg font-bold transition-colors"
-            >
-              Cancelar
-            </button>
-            <button
-              onClick={handleExchangeSubmit}
-              className="flex-1 bg-gradient-to-r from-dpix-color to-purple-600 hover:from-purple-600 hover:to-dpix-color text-white py-3 rounded-lg font-bold transition-all shadow-[0_0_20px_rgba(217,70,239,0.3)]"
-            >
-              <i className="fa-solid fa-check mr-2"></i>
-              Converter
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-{
-  exchangeConfirmModal?.open && (
-    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-      <div className="bg-[#0f1015] border-2 border-dpix-color rounded-lg p-6 max-w-md w-full shadow-[0_0_40px_rgba(217,70,239,0.3)]">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-2xl font-bold text-white flex items-center gap-2">
-            <i className="fa-solid fa-circle-exclamation text-yellow-400"></i>
-            Confirmar Conversão
-          </h2>
-          <button onClick={() => setExchangeConfirmModal(null)} className="text-gray-400 hover:text-white text-xl">
-            <i className="fa-solid fa-times"></i>
-          </button>
-        </div>
-
-        <div className="space-y-4 mb-6">
-          <p className="text-gray-300">
-            Você deseja converter{" "}
-            <span className="font-bold text-white">
-              {exchangeConfirmModal.type === "dpixToBrl"
-                ? `${exchangeConfirmModal.amount.toFixed(2)} DPIX`
-                : `R$ ${exchangeConfirmModal.amount.toFixed(2)}`}
-            </span>
-            ?
-          </p>
-
-          <div className="bg-[#1a1a2e] border border-border-color rounded-lg p-4 space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-gray-400">Você receberá:</span>
-              <span className="text-neon-green font-bold text-lg">
-                {exchangeConfirmModal.type === "dpixToBrl"
-                  ? `R$ ${exchangeConfirmModal.netReceive.toFixed(2)}`
-                  : `Ð ${exchangeConfirmModal.netReceive.toFixed(2)}`}
-              </span>
-            </div>
-            {exchangeConfirmModal.type === "dpixToBrl" && exchangeConfirmModal.fee > 0 && (
-              <div className="flex justify-between">
-                <span className="text-gray-400">Taxa (5%):</span>
-                <span className="text-yellow-400 font-bold">{formatBRL(exchangeConfirmModal.fee)}</span>
-              </div>
-            )}
-          </div>
-          {exchangeConfirmModal.type === "dpixToBrl" && (
-            <p className="text-yellow-400 text-sm text-center font-semibold">Taxa de conversão DPIX → BRL: 5%</p>
-          )}
-          {exchangeConfirmModal.type === "brlToDpix" && (
-            <p className="text-neon-green text-sm text-center font-semibold">Conversão BRL → DPIX sem taxa!</p>
-          )}
-        </div>
-
-        <div className="flex gap-3">
-          <button
-            onClick={() => setExchangeConfirmModal(null)}
-            className="flex-1 px-4 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded font-semibold transition-colors"
-          >
-            Cancelar
-          </button>
-          <button
-            onClick={() => {
-              // Perform the exchange based on the type
-              if (exchangeConfirmModal.type === "dpixToBrl") {
-                setState((prev) => ({
-                  ...prev,
-                  wallet: prev.wallet + exchangeConfirmModal.netReceive,
-                  dpix: prev.dpix - exchangeConfirmModal.amount,
-                }))
-                addLog("Conversão DPIX→BRL", exchangeConfirmModal.netReceive, "in")
-                notify(`Recebido: ${formatBRL(exchangeConfirmModal.netReceive)}`, "success")
-                setSellAmount("")
-              } else {
-                setState((prev) => ({
-                  ...prev,
-                  wallet: prev.wallet - exchangeConfirmModal.amount,
-                  dpix: prev.dpix + exchangeConfirmModal.netReceive,
-                }))
-                addLog("Conversão BRL→DPIX", exchangeConfirmModal.amount, "out")
-                notify(`Recebido: ${exchangeConfirmModal.netReceive.toFixed(2)} DPIX`, "success")
-                setBuyAmount("")
-              }
-              setExchangeConfirmModal(null)
-              setExchangeAmount("") // Clear input
-            }}
-            className="flex-1 px-4 py-3 bg-gradient-to-r from-dpix-color to-purple-600 hover:from-purple-600 hover:to-dpix-color text-white rounded font-semibold transition-all"
-          >
-            Confirmar Conversão
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-{/* NEW: Buy Confirmation Modal */ }
-{
-  buyConfirmModal && buyConfirmModal.show && buyConfirmModal.item && (
-    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 animate-fade-in">
-      <div className="bg-[#0f1015] border border-accent/30 rounded-2xl p-6 max-w-sm w-full shadow-[0_0_50px_rgba(0,0,0,0.8)] relative overflow-hidden">
-        {/* Background Glow */}
-        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-accent to-transparent"></div>
-
-        <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
-          <i className="fa-solid fa-cart-shopping text-accent"></i> Confirmar Compra
-        </h3>
-
-        <div className="bg-[#1a1a2e] rounded-xl p-4 mb-6 border border-white/5">
-          <div className="flex items-center gap-4 mb-4">
-            <div className="w-12 h-12 rounded bg-[#111] border border-[#333] flex items-center justify-center">
-              {buyConfirmModal.type === 'miner' ? <i className="fa-solid fa-microchip text-xl text-[#888]"></i> :
-                buyConfirmModal.type === 'room' ? <i className="fa-solid fa-warehouse text-xl text-[#888]"></i> :
-                  <i className="fa-solid fa-box text-xl text-[#888]"></i>}
-            </div>
-            <div>
-              <div className="text-xs text-[#888] uppercase font-bold">{getTierLabel(buyConfirmModal.item.tier)}</div>
-              <div className="text-white font-bold">{buyConfirmModal.item.name}</div>
-            </div>
-          </div>
-
-          <div className="flex justify-between items-center text-sm border-t border-white/5 pt-3">
-            <span className="text-[#aaa]">Preço:</span>
-            <span className="text-white font-bold font-mono">Ð {buyConfirmModal.item.price.toLocaleString()}</span>
-          </div>
-        </div>
-
-        <div className="flex gap-3">
-          <button
-            onClick={() => setBuyConfirmModal(null)}
-            className="flex-1 py-3 rounded-lg font-bold text-sm bg-[#222] text-[#888] hover:bg-[#333] hover:text-white transition-colors"
-          >
-            CANCELAR
-          </button>
-          <button
-            onClick={confirmPurchase}
-            className="flex-1 py-3 rounded-lg font-bold text-sm bg-accent text-black hover:bg-white transition-colors shadow-[0_0_20px_rgba(0,255,153,0.2)]"
-          >
-            CONFIRMAR
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-{/* Recycle Confirmation Modal */ }
-{
-  recycleModal && (
-    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 animate-fade-in">
-      <div className="bg-[#0f1015] border border-neon-orange/30 rounded-2xl p-6 max-w-sm w-full shadow-[0_0_50px_rgba(255,153,0,0.2)]">
-        <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
-          <i className="fa-solid fa-recycle text-neon-orange"></i> Confirmar Reciclagem
-        </h3>
-        <p className="text-[#aaa] mb-4">
-          Você vai reciclar <strong className="text-white">{recycleModal.items.length} itens</strong>.
-          <br />
-          Valor total a receber:
-        </p>
-        <div className="bg-[#1a1a2e] rounded-xl p-4 mb-6 border border-neon-orange/20 text-center">
-          <span className="text-neon-orange font-bold text-2xl font-mono">+ Ð {recycleModal.totalValue}</span>
-        </div>
-        <div className="flex gap-3">
-          <button onClick={() => setRecycleModal(null)} className="flex-1 py-3 rounded-lg font-bold text-sm bg-[#222] text-[#888] hover:bg-[#333] hover:text-white transition-colors">CANCELAR</button>
-          <button onClick={confirmRecycle} className="flex-1 py-3 rounded-lg font-bold text-sm bg-neon-orange text-black hover:bg-white transition-colors">CONFIRMAR</button>
-        </div>
-      </div>
-    </div>
-  )
-}
-{/* Repair Confirmation Modal */ }
-{
-  repairModal && (
-    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 animate-fade-in">
-      <div className="bg-[#0f1015] border border-neon-blue/30 rounded-2xl p-6 max-w-sm w-full shadow-[0_0_50px_rgba(0,255,255,0.2)]">
-        <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
-          <i className="fa-solid fa-wrench text-neon-blue"></i> Confirmar Reparo
-        </h3>
-        <p className="text-[#aaa] mb-4">
-          Reparar <strong className="text-white">{repairModal.items.length} mineradoras</strong>.
-          <br />
-          Custo total:
-        </p>
-        <div className="bg-[#1a1a2e] rounded-xl p-4 mb-6 border border-neon-blue/20 text-center">
-          <span className="text-neon-blue font-bold text-2xl font-mono">- Ð {repairModal.totalCost}</span>
-        </div>
-        <div className="flex gap-3">
-          <button onClick={() => setRepairModal(null)} className="flex-1 py-3 rounded-lg font-bold text-sm bg-[#222] text-[#888] hover:bg-[#333] hover:text-white transition-colors">CANCELAR</button>
-          <button onClick={confirmRepair} className="flex-1 py-3 rounded-lg font-bold text-sm bg-neon-blue text-black hover:bg-white transition-colors">CONFIRMAR</button>
-        </div>
-      </div>
-    </div>
-  )
-}
+          )
+        }
       </div >
+      <div className="fixed top-5 right-5 z-[9999] flex flex-col gap-2.5 pointer-events-none">
+        {toasts.map((t) => (
+          <div
+            key={t.id}
+            className={`bg-[#151621]/95 border-l-4 text-white px-5 py-4 rounded shadow-lg min-w-[300px] backdrop-blur pointer-events-auto animate-slide-in flex items-center justify-between text-[13px] ${t.type === "success" ? "border-neon-green" : t.type === "error" ? "border-neon-red" : "border-dpix-color"
+              }`}
+          >
+            <div className="flex items-center gap-2.5">
+              {t.type === "success" && <i className="fa-solid fa-check-circle text-neon-green"></i>}
+              {t.type === "error" && <i className="fa-solid fa-circle-xmark text-neon-red"></i>}
+              {t.type === "info" && <i className="fa-solid fa-info-circle text-dpix-color"></i>}
+              <span>{t.msg}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+      {
+        notification && (
+          <div
+            className={`fixed bottom-5 right-5 z-[9999] bg-[#151621]/95 border-l-4 text-white px-5 py-4 rounded shadow-lg min-w-[300px] backdrop-blur pointer-events-auto animate-slide-in flex items-center gap-2.5 text-[13px] border-${notification.color} `}
+          >
+            <i
+              className={`fa-solid ${notification.color === "red"
+                ? "fa-circle-xmark text-red-500"
+                : notification.color === "green"
+                  ? "fa-check-circle text-green-500"
+                  : "fa-info-circle text-blue-500"
+                }`}
+            ></i>
+            {notification.message}
+          </div>
+        )
+      }
+      {
+        buyModal && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[2000] flex items-center justify-center">
+            <div className="bg-card-bg border border-border-color p-6 rounded-xl w-[90%] max-w-[500px] shadow-2xl">
+              <div className="text-center mb-4">
+                <div className="text-lg font-bold text-white mb-1">{buyModal.item.name}</div>
+                <div className="text-xs text-[#888] uppercase">
+                  {buyModal.item.isSpecial
+                    ? "Mineradora Especial (Skin)"
+                    : buyModal.type === "room"
+                      ? "Quarto"
+                      : buyModal.type === "shelf"
+                        ? "Prateleira"
+                        : "Mineradora"}{" "}
+                  • {buyModal.item.tier}
+                </div>
+                {buyModal.item.tier === "box" && (
+                  <div className="mt-1 text-[11px] text-[#aaa]">
+                    Probabilidades:
+                    <br />
+                    Basic: 60% | Comum: 25% | Raro: 10%
+                    <br />
+                    Épico: 4% | Lendário: 1%
+                  </div>
+                )}
+                {buyModal.item.desc && <div className="text-[11px] text-[#aaa] mt-2 italic">"{buyModal.item.desc}"</div>}
+                {buyModal.item.isSpecial && (
+                  <div className="mt-1 text-tier-special text-[11px]">Item exclusivo comprado com DPIX</div>
+                )}
+              </div>
+              <div className="bg-[#111] p-4 rounded-lg flex justify-between items-center border border-[#333]">
+                <span className="text-[#aaa]">Preço:</span>
+                <span className="font-bold text-lg text-dpix-color">Ð {buyModal.item.price}</span>
+              </div>
+              {buyModal.type === "room" && !buyModal.item.isSpecial && !buyModal.item.subtype && (
+                <div className="mt-1 text-[11px] text-[#aaa] text-right">Aluguel: R$ {buyModal.item.rent}/12h</div>
+              )}
+              <div className="mt-2.5 text-[11px] text-[#666] text-center">Seu saldo: {state.dpix.toFixed(2)} DPIX</div>
+              <div className="flex justify-end gap-2.5 mt-5">
+                <button
+                  onClick={() => setBuyModal(null)}
+                  className="bg-transparent border border-[#555] text-[#aaa] px-4 py-1.5 rounded text-xs font-bold cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={() => {
+                    handleBuy(buyModal.item, buyModal.type)
+                    setBuyModal(null)
+                  }}
+                  className="bg-neon-green text-black border-none px-4 py-1.5 rounded text-xs font-bold cursor-pointer hover:scale-105 transition-all"
+                >
+                  CONFIRMAR
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      }
+      {
+        payModal && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[2000] flex items-center justify-center">
+            <div className="bg-card-bg border border-border-color p-6 rounded-xl w-[90%] max-w-[500px] shadow-2xl">
+              <div className="text-center mb-5 text-white font-bold text-lg flex flex-col items-center">
+                <i className="fa-solid fa-bolt text-neon-orange mb-2 text-2xl"></i>
+                Pagar Energia
+              </div>
+
+              <div className="text-center mb-5">
+                <div className="text-base text-white font-bold">
+                  {ITEMS_DB.room.find((r) => r.id === state.inventory.find((i) => i.uid === payModal.roomUid)?.id)?.name}
+                </div>
+              </div>
+
+              <div className="bg-[#111] border border-[#333] rounded-lg p-4 mb-4">
+                <div className="flex justify-between mb-1.5">
+                  <span className="text-[#aaa]">Custo (12h):</span>
+                  <span className="text-neon-orange font-bold">
+                    Ð{" "}
+                    {
+                      ITEMS_DB.room.find((r) => r.id === state.inventory.find((i) => i.uid === payModal.roomUid)?.id)
+                        ?.rent
+                    }
+                  </span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-[#666]">Seu Saldo (DPIX):</span>
+                  <span className="text-neon-green">Ð {state.dpix.toFixed(2)}</span>
+                </div>
+              </div>
+              <div className="text-[11px] text-[#888] text-center mb-5">
+                Isso irá restaurar o timer de energia para 12 horas.
+              </div>
+
+              <div className="flex justify-end gap-2.5 mt-5">
+                <button
+                  onClick={() => setPayModal(null)}
+                  className="bg-transparent border border-[#555] text-[#aaa] px-4 py-2 rounded text-sm font-bold cursor-pointer hover:bg-[#2a2d3a] transition-all"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={processPayRent}
+                  className="bg-neon-orange text-black border-none px-4 py-2 rounded text-sm font-bold cursor-pointer hover:bg-orange-400 transition-all"
+                >
+                  PAGAR AGORA
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      }
+      {
+        payAllModal && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[2000] flex items-center justify-center">
+            <div className="bg-card-bg border border-border-color p-6 rounded-xl w-[90%] max-w-[500px] shadow-2xl">
+              <div className="text-center mb-5 text-white font-bold text-lg flex flex-col items-center">
+                <i className="fa-solid fa-bolt text-neon-yellow mb-2 text-3xl animate-pulse"></i>
+                Confirmar Pagamento em Massa
+              </div>
+
+              <div className="text-center mb-5">
+                <div className="text-base text-white font-bold">
+                  Setor {payAllModal.rarity.charAt(0).toUpperCase() + payAllModal.rarity.slice(1)}
+                </div>
+                <div className="text-sm text-[#aaa] mt-1">
+                  {payAllModal.count} {payAllModal.count === 1 ? "quarto precisa" : "quartos precisam"} de energia
+                </div>
+              </div>
+
+              <div className="bg-[#111] border border-[#333] rounded-lg p-4 mb-4">
+                <div className="flex justify-between mb-1.5">
+                  <span className="text-[#aaa]">Custo Total (12h cada):</span>
+                  <span className="text-neon-orange font-bold text-lg">Ð {payAllModal.total.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-[#666]">Seu Saldo (DPIX):</span>
+                  <span className={state.dpix >= payAllModal.total ? "text-neon-green" : "text-red-500"}>
+                    Ð {state.dpix.toFixed(2)}
+                  </span>
+                </div>
+                {state.dpix < payAllModal.total && (
+                  <div className="text-xs text-red-500 mt-2 text-center">
+                    Saldo insuficiente! Faltam: Ð {(payAllModal.total - state.dpix).toFixed(2)}
+                  </div>
+                )}
+              </div>
+              <div className="text-[11px] text-[#888] text-center mb-5">
+                Isso irá renovar a energia de todos os {payAllModal.count} quartos para 12 horas cada.
+              </div>
+
+              <div className="flex justify-end gap-2.5 mt-5">
+                <button
+                  onClick={() => setPayAllModal(null)}
+                  className="bg-transparent border border-[#555] text-[#aaa] px-4 py-2 rounded text-sm font-bold cursor-pointer hover:bg-[#2a2d3a] transition-all"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={processPayAllEnergy}
+                  disabled={state.dpix < payAllModal.total}
+                  className="bg-gradient-to-r from-neon-yellow to-neon-orange text-black border-none px-6 py-2 rounded text-sm font-bold cursor-pointer hover:shadow-[0_0_20px_rgba(255,193,7,0.5)] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <i className="fa-solid fa-bolt mr-2"></i>
+                  CONFIRMAR PAGAMENTO
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      }
+      {
+        installModal && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[2000] flex items-center justify-center">
+            <div className="bg-card-bg border border-border-color p-6 rounded-xl w-[90%] max-w-[500px] shadow-2xl">
+              <div className="text-lg font-bold text-white mb-4">Instalar Item</div>
+              <div className="text-[#aaa] text-sm mb-2">Selecione um item do inventário:</div>
+              <div className="max-h-[300px] overflow-y-auto flex flex-col gap-2.5 my-4">
+                {state.inventory.filter((i) => i.type === installModal.typeNeeded && i.parentId === null).length === 0 ? (
+                  <div className="text-[#888] text-center py-4">
+                    Sem itens disponíveis.
+                    <br />
+                    Vá ao Mercado comprar.
+                  </div>
+                ) : (
+                  state.inventory
+                    .filter((i) => i.type === installModal.typeNeeded && i.parentId === null)
+                    .map((item) => {
+                      const db = ITEMS_DB[item.type].find((x) => x.id === item.id)
+                      const health = item.health ?? 100
+                      const isBroken = health <= 0
+
+                      return (
+                        <div
+                          key={item.uid}
+                          className={`p-2.5 border rounded bg-[#111] flex justify-between items-center ${isBroken ? "border-red-500 opacity-60" : "border-[#333] hover:border-accent"
+                            } group relative`}
+                          style={{ borderLeft: `3px solid ${isBroken ? "#ff5252" : getTierColor(db?.tier || "basic")}` }}
+                        >
+                          <div className="flex-1">
+                            <div
+                              className={`font-bold ${isBroken ? "text-red-500" : "text-white group-hover:text-accent"} transition-colors flex items-center gap-2`}
+                            >
+                              {db?.name}
+                              {isBroken && (
+                                <span className="text-[10px] bg-red-500/20 text-red-500 px-2 py-0.5 rounded uppercase font-bold">
+                                  Superaquecida
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[11px] text-[#888] uppercase">{db?.tier}</div>
+                            {item.type === "miner" && (
+                              <div className="flex items-center gap-1.5 mt-1">
+                                <i
+                                  className={`fa-solid fa-temperature-${isBroken ? "full" : health > 50 ? "low" : health > 20 ? "half" : "high"} text-[10px]`}
+                                  style={{
+                                    color: isBroken
+                                      ? "#ff5252"
+                                      : health > 50
+                                        ? "#00e676"
+                                        : health > 20
+                                          ? "#ffea00"
+                                          : "#ff5252",
+                                  }}
+                                ></i>
+                                <div className="w-20 h-1.5 bg-black/50 rounded-full overflow-hidden">
+                                  <div
+                                    className={`h-full transition-all ${health > 50 ? "bg-green-500" : health > 20 ? "bg-yellow-500" : "bg-red-600"
+                                      }`}
+                                    style={{ width: `${health}%` }}
+                                  ></div>
+                                </div>
+                                <span
+                                  className="text-[10px] font-mono"
+                                  style={{
+                                    color: isBroken
+                                      ? "#ff5252"
+                                      : health > 50
+                                        ? "#00e676"
+                                        : health > 20
+                                          ? "#ffea00"
+                                          : "#ff5252",
+                                  }}
+                                >
+                                  {health.toFixed(0)}%
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                          {isBroken ? (
+                            <button
+                              onClick={() => {
+                                handleRepairRequest([item.uid])
+                              }}
+                              className="bg-neon-orange text-black px-3 py-1.5 rounded text-xs font-bold hover:bg-orange-400 cursor-pointer flex items-center gap-1.5 whitespace-nowrap"
+                            >
+                              <i className="fa-solid fa-wrench"></i>
+                              MANUTENÇÃO (Ð 50)
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleInstall(item.uid)}
+                              className="border border-neon-green text-neon-green px-3 py-1 rounded text-xs font-bold hover:bg-neon-green hover:text-black cursor-pointer"
+                            >
+                              INSTALAR
+                            </button>
+                          )}
+                        </div>
+                      )
+                    })
+                )}
+              </div>
+              <div className="text-right">
+                <button
+                  onClick={() => setInstallModal(null)}
+                  className="bg-transparent border border-[#555] text-[#aaa] px-4 py-1.5 rounded text-xs font-bold cursor-pointer hover:bg-white hover:text-black"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      }
+      {
+        bankModal && (
+          <BankModal
+            type={bankModal.type}
+            balance={state.wallet}
+            createdAt={state.createdAt}
+            onClose={() => setBankModal(null)}
+            onConfirm={handleBankAction}
+          />
+        )
+      }
+      {boxAnim && <BoxOpeningModal wonItem={boxAnim.wonItem} tier={boxAnim.tier} onClose={() => setBoxAnim(null)} />}
+      {
+        demolishModal?.show && (
+          <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+            <div className="bg-gray-900 border border-red-500/30 rounded-lg p-6 max-w-md w-full shadow-2xl">
+              <div className="flex items-center gap-3 mb-4">
+                <i className="fas fa-exclamation-triangle text-red-500 text-2xl"></i>
+                <h3 className="text-xl font-bold text-red-500">Confirmar Demolição</h3>
+              </div>
+
+              <div className="space-y-4 mb-6">
+                <p className="text-gray-300">Você está prestes a demolir o quarto:</p>
+                <p className="text-center text-xl font-bold text-white bg-gray-800 p-3 rounded border border-gray-700">
+                  {demolishModal.roomName}
+                </p>
+                <div className="bg-green-500/10 border border-green-500/30 rounded p-3">
+                  <p className="text-green-400 text-center">
+                    Você receberá: <span className="font-bold text-lg">Ð 8.00</span>
+                  </p>
+                </div>
+                <p className="text-red-400 text-sm text-center font-semibold">⚠ Esta ação é irreversível!</p>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setDemolishModal(null)}
+                  className="flex-1 px-4 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded font-semibold transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={confirmDemolish}
+                  className="flex-1 px-4 py-3 bg-red-600 hover:bg-red-700 text-white rounded font-semibold transition-colors"
+                >
+                  Demolir
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      }
+      {
+        exchangeModal.open && (
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-[#0f1015] border-2 border-dpix-color rounded-lg p-6 max-w-md w-full shadow-[0_0_40px_rgba(217,70,239,0.3)]">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+                  <i className="fa-solid fa-exchange-alt text-dpix-color"></i>
+                  {exchangeModal.mode === "dpix-to-brl" ? "DPIX → BRL" : "BRL → DPIX"}
+                </h2>
+                <button
+                  onClick={() => {
+                    setExchangeModal({ open: false, mode: null })
+                    setExchangeAmount("")
+                  }}
+                  className="text-[#888] hover:text-white transition-colors"
+                >
+                  <i className="fa-solid fa-times text-xl"></i>
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                {/* Informações da Cotação */}
+                <div className="bg-[#1a1a2e] border border-border-color rounded-lg p-4 space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-400">Taxa de Câmbio:</span>
+                    <span className="text-white font-bold">
+                      {exchangeModal.mode === "dpix-to-brl" ? "100 DPIX = R$ 1,00" : "R$ 1,00 = 100 DPIX"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-400">Taxa de Serviço:</span>
+                    <span className="text-yellow-400 font-bold">2%</span>
+                  </div>
+                  <div className="flex justify-between text-sm border-t border-border-color pt-2">
+                    <span className="text-gray-400">Seu Saldo:</span>
+                    <span className="text-neon-green font-bold font-mono">
+                      {exchangeModal.mode === "dpix-to-brl" ? `Ð ${state.dpix.toFixed(2)}` : formatBRL(state.wallet)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Input de Valor */}
+                <div>
+                  <label className="block text-sm text-gray-400 mb-2">Quanto deseja converter?</label>
+                  <input
+                    type="number"
+                    value={exchangeAmount}
+                    onChange={(e) => {
+                      setExchangeAmount(e.target.value)
+                    }}
+                    placeholder={exchangeModal.mode === "dpix-to-brl" ? "Digite DPIX" : "Digite BRL"}
+                    className="w-full bg-[#1a1a2e] border border-border-color rounded-lg px-4 py-3 text-white font-mono text-lg focus:outline-none focus:border-dpix-color"
+                    step="0.01"
+                    min="0"
+                    autoFocus
+                  />
+                </div>
+
+                {/* Preview da Conversão */}
+                {exchangeAmount && Number.parseFloat(exchangeAmount) > 0 && (
+                  <div className="bg-[#1a1a2e] border border-dpix-color/50 rounded-lg p-4 space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-400">Você está convertendo:</span>
+                      <span className="text-white font-bold">
+                        {exchangeModal.mode === "dpix-to-brl"
+                          ? `Ð ${Number.parseFloat(exchangeAmount).toFixed(2)}`
+                          : `R$ ${Number.parseFloat(exchangeAmount).toFixed(2)}`}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-400">Taxa (2%):</span>
+                      <span className="text-yellow-400 font-bold">
+                        {exchangeModal.mode === "dpix-to-brl"
+                          ? `R$ ${((Number.parseFloat(exchangeAmount) / EXCHANGE_RATE) * CURRENT_EXCHANGE_FEE).toFixed(2)}`
+                          : `R$ ${(Number.parseFloat(exchangeAmount) * CURRENT_EXCHANGE_FEE).toFixed(2)}`}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-sm border-t border-dpix-color/30 pt-2">
+                      <span className="text-gray-400">Você receberá:</span>
+                      <span className="text-neon-green font-bold text-lg">
+                        {exchangeModal.mode === "dpix-to-brl"
+                          ? `R$ ${((Number.parseFloat(exchangeAmount) / EXCHANGE_RATE) * (1 - CURRENT_EXCHANGE_FEE)).toFixed(2)}`
+                          : `Ð ${(Number.parseFloat(exchangeAmount) * (1 - CURRENT_EXCHANGE_FEE) * EXCHANGE_RATE).toFixed(2)}`}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Botões de Ação */}
+                <div className="flex gap-3 pt-2">
+                  <button
+                    onClick={() => {
+                      setExchangeModal({ open: false, mode: null })
+                      setExchangeAmount("")
+                    }}
+                    className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-3 rounded-lg font-bold transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleExchangeSubmit}
+                    className="flex-1 bg-gradient-to-r from-dpix-color to-purple-600 hover:from-purple-600 hover:to-dpix-color text-white py-3 rounded-lg font-bold transition-all shadow-[0_0_20px_rgba(217,70,239,0.3)]"
+                  >
+                    <i className="fa-solid fa-check mr-2"></i>
+                    Converter
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      }
+      {
+        exchangeConfirmModal?.open && (
+          <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+            <div className="bg-[#0f1015] border-2 border-dpix-color rounded-lg p-6 max-w-md w-full shadow-[0_0_40px_rgba(217,70,239,0.3)]">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+                  <i className="fa-solid fa-circle-exclamation text-yellow-400"></i>
+                  Confirmar Conversão
+                </h2>
+                <button onClick={() => setExchangeConfirmModal(null)} className="text-gray-400 hover:text-white text-xl">
+                  <i className="fa-solid fa-times"></i>
+                </button>
+              </div>
+
+              <div className="space-y-4 mb-6">
+                <p className="text-gray-300">
+                  Você deseja converter{" "}
+                  <span className="font-bold text-white">
+                    {exchangeConfirmModal.type === "dpixToBrl"
+                      ? `${exchangeConfirmModal.amount.toFixed(2)} DPIX`
+                      : `R$ ${exchangeConfirmModal.amount.toFixed(2)}`}
+                  </span>
+                  ?
+                </p>
+
+                <div className="bg-[#1a1a2e] border border-border-color rounded-lg p-4 space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Você receberá:</span>
+                    <span className="text-neon-green font-bold text-lg">
+                      {exchangeConfirmModal.type === "dpixToBrl"
+                        ? `R$ ${exchangeConfirmModal.netReceive.toFixed(2)}`
+                        : `Ð ${exchangeConfirmModal.netReceive.toFixed(2)}`}
+                    </span>
+                  </div>
+                  {exchangeConfirmModal.type === "dpixToBrl" && exchangeConfirmModal.fee > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">Taxa (5%):</span>
+                      <span className="text-yellow-400 font-bold">{formatBRL(exchangeConfirmModal.fee)}</span>
+                    </div>
+                  )}
+                </div>
+                {exchangeConfirmModal.type === "dpixToBrl" && (
+                  <p className="text-yellow-400 text-sm text-center font-semibold">Taxa de conversão DPIX → BRL: 5%</p>
+                )}
+                {exchangeConfirmModal.type === "brlToDpix" && (
+                  <p className="text-neon-green text-sm text-center font-semibold">Conversão BRL → DPIX sem taxa!</p>
+                )}
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setExchangeConfirmModal(null)}
+                  className="flex-1 px-4 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded font-semibold transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={() => {
+                    // Perform the exchange based on the type
+                    if (exchangeConfirmModal.type === "dpixToBrl") {
+                      setState((prev) => ({
+                        ...prev,
+                        wallet: prev.wallet + exchangeConfirmModal.netReceive,
+                        dpix: prev.dpix - exchangeConfirmModal.amount,
+                      }))
+                      addLog("Conversão DPIX→BRL", exchangeConfirmModal.netReceive, "in")
+                      notify(`Recebido: ${formatBRL(exchangeConfirmModal.netReceive)}`, "success")
+                      setSellAmount("")
+                    } else {
+                      setState((prev) => ({
+                        ...prev,
+                        wallet: prev.wallet - exchangeConfirmModal.amount,
+                        dpix: prev.dpix + exchangeConfirmModal.netReceive,
+                      }))
+                      addLog("Conversão BRL→DPIX", exchangeConfirmModal.amount, "out")
+                      notify(`Recebido: ${exchangeConfirmModal.netReceive.toFixed(2)} DPIX`, "success")
+                      setBuyAmount("")
+                    }
+                    setExchangeConfirmModal(null)
+                    setExchangeAmount("") // Clear input
+                  }}
+                  className="flex-1 px-4 py-3 bg-gradient-to-r from-dpix-color to-purple-600 hover:from-purple-600 hover:to-dpix-color text-white rounded font-semibold transition-all"
+                >
+                  Confirmar Conversão
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      }
+      {/* NEW: Buy Confirmation Modal */}
+      {
+        buyConfirmModal && buyConfirmModal.show && buyConfirmModal.item && (
+          <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 animate-fade-in">
+            <div className="bg-[#0f1015] border border-accent/30 rounded-2xl p-6 max-w-sm w-full shadow-[0_0_50px_rgba(0,0,0,0.8)] relative overflow-hidden">
+              {/* Background Glow */}
+              <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-accent to-transparent"></div>
+
+              <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+                <i className="fa-solid fa-cart-shopping text-accent"></i> Confirmar Compra
+              </h3>
+
+              <div className="bg-[#1a1a2e] rounded-xl p-4 mb-6 border border-white/5">
+                <div className="flex items-center gap-4 mb-4">
+                  <div className="w-12 h-12 rounded bg-[#111] border border-[#333] flex items-center justify-center">
+                    {buyConfirmModal.type === 'miner' ? <i className="fa-solid fa-microchip text-xl text-[#888]"></i> :
+                      buyConfirmModal.type === 'room' ? <i className="fa-solid fa-warehouse text-xl text-[#888]"></i> :
+                        <i className="fa-solid fa-box text-xl text-[#888]"></i>}
+                  </div>
+                  <div>
+                    <div className="text-xs text-[#888] uppercase font-bold">{getTierLabel(buyConfirmModal.item.tier)}</div>
+                    <div className="text-white font-bold">{buyConfirmModal.item.name}</div>
+                  </div>
+                </div>
+
+                <div className="flex justify-between items-center text-sm border-t border-white/5 pt-3">
+                  <span className="text-[#aaa]">Preço:</span>
+                  <span className="text-white font-bold font-mono">Ð {buyConfirmModal.item.price.toLocaleString()}</span>
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setBuyConfirmModal(null)}
+                  className="flex-1 py-3 rounded-lg font-bold text-sm bg-[#222] text-[#888] hover:bg-[#333] hover:text-white transition-colors"
+                >
+                  CANCELAR
+                </button>
+                <button
+                  onClick={confirmPurchase}
+                  className="flex-1 py-3 rounded-lg font-bold text-sm bg-accent text-black hover:bg-white transition-colors shadow-[0_0_20px_rgba(0,255,153,0.2)]"
+                >
+                  CONFIRMAR
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      }
+      {/* Recycle Confirmation Modal */}
+      {
+        recycleModal && (
+          <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 animate-fade-in">
+            <div className="bg-[#0f1015] border border-neon-orange/30 rounded-2xl p-6 max-w-sm w-full shadow-[0_0_50px_rgba(255,153,0,0.2)]">
+              <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+                <i className="fa-solid fa-recycle text-neon-orange"></i> Confirmar Reciclagem
+              </h3>
+              <p className="text-[#aaa] mb-4">
+                Você vai reciclar <strong className="text-white">{recycleModal.items.length} itens</strong>.
+                <br />
+                Valor total a receber:
+              </p>
+              <div className="bg-[#1a1a2e] rounded-xl p-4 mb-6 border border-neon-orange/20 text-center">
+                <span className="text-neon-orange font-bold text-2xl font-mono">+ Ð {recycleModal.totalValue}</span>
+              </div>
+              <div className="flex gap-3">
+                <button onClick={() => setRecycleModal(null)} className="flex-1 py-3 rounded-lg font-bold text-sm bg-[#222] text-[#888] hover:bg-[#333] hover:text-white transition-colors">CANCELAR</button>
+                <button onClick={confirmRecycle} className="flex-1 py-3 rounded-lg font-bold text-sm bg-neon-orange text-black hover:bg-white transition-colors">CONFIRMAR</button>
+              </div>
+            </div>
+          </div>
+        )
+      }
+      {/* Repair Confirmation Modal */}
+      {
+        repairModal && (
+          <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 animate-fade-in">
+            <div className="bg-[#0f1015] border border-neon-blue/30 rounded-2xl p-6 max-w-sm w-full shadow-[0_0_50px_rgba(0,255,255,0.2)]">
+              <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+                <i className="fa-solid fa-wrench text-neon-blue"></i> Confirmar Reparo
+              </h3>
+              <p className="text-[#aaa] mb-4">
+                Reparar <strong className="text-white">{repairModal.items.length} mineradoras</strong>.
+                <br />
+                Custo total:
+              </p>
+              <div className="bg-[#1a1a2e] rounded-xl p-4 mb-6 border border-neon-blue/20 text-center">
+                <span className="text-neon-blue font-bold text-2xl font-mono">- Ð {repairModal.totalCost}</span>
+              </div>
+              <div className="flex gap-3">
+                <button onClick={() => setRepairModal(null)} className="flex-1 py-3 rounded-lg font-bold text-sm bg-[#222] text-[#888] hover:bg-[#333] hover:text-white transition-colors">CANCELAR</button>
+                <button onClick={confirmRepair} className="flex-1 py-3 rounded-lg font-bold text-sm bg-neon-blue text-black hover:bg-white transition-colors">CONFIRMAR</button>
+              </div>
+            </div>
+          </div>
+        )
+      }
     </div >
-  )
+  </div >
+)
 }
 
 export default App
@@ -4701,3 +4738,5 @@ function InventoryView({ inventory, onUninstall, onRequestRecycle, onRequestRepa
     </div>
   )
 }
+
+
